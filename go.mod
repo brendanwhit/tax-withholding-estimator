@@ -2,7 +2,11 @@ module github.com/brendanwhit/tax-withholding-estimator
 
 go 1.24.4
 
-require modernc.org/sqlite v1.44.3
+require (
+	github.com/go-pdf/fpdf v0.9.0
+	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
+	modernc.org/sqlite v1.44.3
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
