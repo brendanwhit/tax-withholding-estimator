@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Skill(code-review:code-review)",
+      "Skill(commit-commands:clean_gone)",
+      "Skill(commit-commands:commit)",
+      "Skill(commit-commands:commit-push-pr)",
+      "Skill(notify:notify)",
+      "Skill(scribe:refresh)",
+      "Skill(teacher:assign)",
+      "Skill(teacher:extend)",
+      "Skill(teacher:grade)",
+      "Skill(worktree:cleanup)",
+      "Skill(worktree:list)",
+      "Skill(worktree:ralph)",
+      "Skill(worktree:resume)",
+      "Skill(worktree:spawn)"
+    ]
+  }
+}

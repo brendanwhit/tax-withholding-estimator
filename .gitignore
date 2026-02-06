@@ -1,11 +1,19 @@
-# Common ignores
+# Go
+bin/
+*.exe
+
+# Data
+data/
+
+# IDE
 .DS_Store
-*.pyc
-__pycache__/
-node_modules/
+.vscode/
+.idea/
+
+# Environment
 .env
 .env.local
 *.log
-dist/
-build/
+
+# Ralph
 .ralph/
