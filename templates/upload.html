@@ -1,0 +1,39 @@
+{{define "upload.html"}}
+{{template "header" .}}
+<div class="card">
+    <h1>Upload Paystub</h1>
+
+    {{if .Error}}
+    <div class="alert alert-error">{{.Error}}</div>
+    {{end}}
+
+    {{if .Success}}
+    <div class="alert alert-success">
+        Paystub uploaded successfully for <strong>{{.Data.FirstName}}</strong>
+        ({{.Data.PayPeriodStart.Format "01/02/2006"}} - {{.Data.PayPeriodEnd.Format "01/02/2006"}}).
+    </div>
+    {{end}}
+
+    <form hx-post="/upload"
+          hx-target="#upload-result"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data">
+        <label for="paystub">Select PDF paystub file</label>
+        <input type="file" name="paystub" id="paystub" accept=".pdf">
+        <button type="submit">Upload &amp; Parse</button>
+    </form>
+
+    <div id="upload-result"></div>
+</div>
+
+<div class="card">
+    <h2>How It Works</h2>
+    <ol style="padding-left:20px; color:#4a5568;">
+        <li style="margin-bottom:8px;">Upload a PDF of your paystub</li>
+        <li style="margin-bottom:8px;">The parser extracts gross pay, federal tax withheld, and pay period dates</li>
+        <li style="margin-bottom:8px;">All sensitive data (SSN, address, bank info) is stripped — only your first name is stored</li>
+        <li style="margin-bottom:8px;">The data is saved and used to estimate your annual withholding</li>
+    </ol>
+</div>
+{{template "footer" .}}
+{{end}}

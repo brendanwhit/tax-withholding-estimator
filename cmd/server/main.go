@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/brendanwhit/tax-withholding-estimator/internal/db"
+	"github.com/brendanwhit/tax-withholding-estimator/internal/handler"
 )
 
 func main() {
@@ -25,15 +25,23 @@ func main() {
 		log.Fatalf("failed to run migrations: %v", err)
 	}
 
+	tmplDir := os.Getenv("TEMPLATE_DIR")
+	if tmplDir == "" {
+		tmplDir = "templates"
+	}
+
+	srv, err := handler.NewServer(store, tmplDir)
+	if err != nil {
+		log.Fatalf("failed to create server: %v", err)
+	}
+
 	addr := os.Getenv("ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintln(w, "Tax Withholding Estimator")
-	})
+	srv.RegisterRoutes(mux)
 
 	log.Printf("listening on %s", addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {

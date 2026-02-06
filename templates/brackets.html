@@ -1,0 +1,70 @@
+{{define "brackets.html"}}
+{{template "header" .}}
+<div class="card">
+    <h1>{{.Year}} Federal Tax Brackets</h1>
+
+    <form method="GET" action="/brackets" style="display:flex; gap:12px; align-items:end; margin-bottom:20px;">
+        <div>
+            <label for="year">Tax Year</label>
+            <select name="year" id="year">
+                <option value="2025" {{if eq .Year 2025}}selected{{end}}>2025</option>
+                <option value="2026" {{if eq .Year 2026}}selected{{end}}>2026</option>
+            </select>
+        </div>
+        <div style="flex:1">
+            <label for="status">Filing Status</label>
+            <select name="status" id="status">
+                {{$current := .Status}}
+                {{range .AllStatuses}}
+                <option value="{{.}}" {{if eq (printf "%s" .) $current}}selected{{end}}>{{formatStatus (printf "%s" .)}}</option>
+                {{end}}
+            </select>
+        </div>
+        <button type="submit" style="margin-bottom:12px;">View</button>
+    </form>
+</div>
+
+{{if .Schedule}}
+<div class="card">
+    <h2>{{formatStatus .Status}}</h2>
+    <p style="margin-bottom:16px; color:#718096;">
+        Standard Deduction: <strong>{{formatMoney .Schedule.StandardDeduction}}</strong>
+    </p>
+
+    <div class="bracket-bar">
+        {{range $i, $b := .Schedule.Brackets}}
+        <div class="bracket-segment" style="flex:{{if eq $b.Max 0.0}}2{{else}}1{{end}}; {{if eq $i 0}}background:#48bb78{{else if eq $i 1}}background:#4299e1{{else if eq $i 2}}background:#9f7aea{{else if eq $i 3}}background:#ed8936{{else if eq $i 4}}background:#e53e3e{{else if eq $i 5}}background:#d69e2e{{else}}background:#718096{{end}}">
+            {{formatPercent $b.Rate}}
+        </div>
+        {{end}}
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Bracket</th>
+                <th>Income Range</th>
+                <th>Tax Rate</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $i, $b := .Schedule.Brackets}}
+            <tr>
+                <td>{{$i}}</td>
+                <td>
+                    {{formatMoney $b.Min}}
+                    {{if eq $b.Max 0.0}}
+                        and above
+                    {{else}}
+                        &mdash; {{formatMoney $b.Max}}
+                    {{end}}
+                </td>
+                <td>{{formatPercent $b.Rate}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{template "footer" .}}
+{{end}}

@@ -1,0 +1,127 @@
+{{define "dashboard.html"}}
+{{template "header" .}}
+<div class="card">
+    <h1>{{.Year}} Withholding Dashboard</h1>
+
+    <form hx-post="/filing-status" hx-swap="none" style="display:flex; gap:12px; align-items:end; margin-bottom:20px;">
+        <input type="hidden" name="year" value="{{.Year}}">
+        <div style="flex:1">
+            <label for="filing_status">Filing Status</label>
+            <select name="filing_status" id="filing_status">
+                {{$current := .FilingStatus}}
+                {{range .AllStatuses}}
+                <option value="{{.}}" {{if eq (printf "%s" .) $current}}selected{{end}}>{{formatStatus (printf "%s" .)}}</option>
+                {{end}}
+            </select>
+        </div>
+        <button type="submit" style="margin-bottom:12px;">Update</button>
+    </form>
+</div>
+
+{{if .HasPaystubs}}
+<div class="card">
+    <h2>Withholding Summary</h2>
+    <div class="stat-grid">
+        <div class="stat">
+            <div class="label">Estimated Annual Income</div>
+            <div class="value">{{formatMoney .Result.EstimatedAnnualIncome}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Total Tax Liability</div>
+            <div class="value">{{formatMoney .Result.TotalTaxLiability}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Total Withheld To Date</div>
+            <div class="value">{{formatMoney .Result.TotalWithheldToDate}}</div>
+        </div>
+        {{if gt .Result.RemainingTaxOwed 0}}
+        <div class="stat warning">
+            <div class="label">Remaining Tax Owed</div>
+            <div class="value">{{formatMoney .Result.RemainingTaxOwed}}</div>
+        </div>
+        {{else}}
+        <div class="stat success">
+            <div class="label">Status</div>
+            <div class="value">On Track</div>
+        </div>
+        {{end}}
+    </div>
+
+    {{if gt .Result.AdditionalPerPaycheck 0}}
+    <div class="stat-grid">
+        <div class="stat highlight">
+            <div class="label">Recommended Additional per Paycheck</div>
+            <div class="value">{{formatMoney .Result.AdditionalPerPaycheck}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Apply To</div>
+            <div class="value">{{.Result.HigherEarnerName}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Remaining Pay Periods</div>
+            <div class="value">{{.Result.RemainingPayPeriods}}</div>
+        </div>
+    </div>
+    {{end}}
+</div>
+
+<div class="card">
+    <h2>Earner Details</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Pay Periods</th>
+                <th>YTD Gross</th>
+                <th>YTD Fed Withheld</th>
+                <th>Avg/Period</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Result.Earners}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.PayPeriodsUploaded}}</td>
+                <td>{{formatMoney .LatestYTDGross}}</td>
+                <td>{{formatMoney .LatestYTDFedWithheld}}</td>
+                <td>{{formatMoney .AvgGrossPerPeriod}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h2>Uploaded Paystubs</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Person</th>
+                <th>Period</th>
+                <th>Gross Pay</th>
+                <th>Fed Tax</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Paystubs}}
+            <tr>
+                <td>{{.PersonName}}</td>
+                <td>{{.PayPeriodStart.Format "01/02"}} - {{.PayPeriodEnd.Format "01/02/2006"}}</td>
+                <td>{{formatMoney .GrossPay}}</td>
+                <td>{{formatMoney .FederalTaxWithheld}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
+{{else}}
+<div class="card">
+    <div class="empty-state">
+        <p>No paystubs uploaded yet for {{.Year}}.</p>
+        <a href="/upload" class="btn">Upload Your First Paystub</a>
+    </div>
+</div>
+{{end}}
+{{template "footer" .}}
+{{end}}
