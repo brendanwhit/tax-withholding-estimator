@@ -79,6 +79,9 @@ Visit `/brackets` to browse federal tax brackets by year (2025/2026) and filing 
 # Run in dev mode (enables /admin/clear-db endpoint)
 make dev
 
+# Run in dev mode with live reload (rebuilds on file changes)
+make dev-watch
+
 # Run tests
 make test
 
