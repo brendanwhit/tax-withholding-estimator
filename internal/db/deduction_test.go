@@ -21,7 +21,7 @@ func TestSaveAndGetDeductions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Migrate(); err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestContributionLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Migrate(); err != nil {
 		t.Fatal(err)
@@ -126,7 +126,7 @@ func TestGetOrCacheContributionLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	if err := store.Migrate(); err != nil {
 		t.Fatal(err)

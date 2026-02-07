@@ -214,6 +214,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now())
 
+	// Build EOY projection per person.
+	paystubsByPerson := make(map[string][]db.Paystub)
+	for _, p := range paystubs {
+		paystubsByPerson[p.PersonName] = append(paystubsByPerson[p.PersonName], p)
+	}
+	eoyProjection := calc.ProjectEOYWithholding(paystubsByPerson, time.Now(), year)
+
 	data := map[string]interface{}{
 		"Year":                 year,
 		"FilingStatus":         filingStatus,
@@ -224,6 +231,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"DeductionSummaries":   deductionSummaries,
 		"DeductionWarnings":    warnings,
 		"TotalPreTaxDeductions": totalPreTaxDeductions,
+		"EOYProjection":        eoyProjection,
 	}
 
 	if err := s.Tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {

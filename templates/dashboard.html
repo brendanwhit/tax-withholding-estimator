@@ -115,6 +115,53 @@
     </table>
 </div>
 
+{{if .EOYProjection}}
+{{if .EOYProjection.Earners}}
+<div class="card">
+    <h2>End-of-Year Withholding Projection</h2>
+    <div class="stat-grid">
+        <div class="stat highlight">
+            <div class="label">Estimated EOY Total Withheld</div>
+            <div class="value">{{formatMoney .EOYProjection.CombinedEOYEstimate}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Already Withheld</div>
+            <div class="value">{{formatMoney .EOYProjection.CombinedWithheld}}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Projected Remaining</div>
+            <div class="value">{{formatMoney .EOYProjection.CombinedProjected}}</div>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Person</th>
+                <th>Pay Freq</th>
+                <th>Withheld</th>
+                <th>Projected</th>
+                <th>EOY Total</th>
+                <th>Bonuses</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .EOYProjection.Earners}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.PayFrequency}}</td>
+                <td>{{formatMoney .TotalWithheldToDate}}</td>
+                <td>{{formatMoney .ProjectedRemaining}} ({{.RemainingPayPeriods}} periods)</td>
+                <td>{{formatMoney .ProjectedEOYTotal}}</td>
+                <td>{{if gt .BonusCount 0}}{{.BonusCount}} detected ({{formatMoney .BonusWithheldToDate}}){{else}}&mdash;{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}
+{{end}}
+
 {{if .DeductionWarnings}}
 <div class="card">
     <h2>Contribution Limit Warnings</h2>
