@@ -13,6 +13,15 @@ func almostEqual(a, b, tol float64) bool {
 	return math.Abs(a-b) < tol
 }
 
+func withholding(schedule *tax.BracketSchedule, earners []calc.EarnerSummary, ref time.Time) *calc.WithholdingResult {
+	return calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          ref,
+	})
+}
+
 func TestCombinedTaxLiabilityFromTwoIncomes(t *testing.T) {
 	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
 	if schedule == nil {
@@ -40,7 +49,7 @@ func TestCombinedTaxLiabilityFromTwoIncomes(t *testing.T) {
 		},
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), 0)
+	result := withholding(schedule, earners, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
 
 	// Combined income = (50000/13*26) + (40000/13*26) = 100000 + 80000 = ~180000 annually
 	if result.EstimatedAnnualIncome < 170000 || result.EstimatedAnnualIncome > 190000 {
@@ -85,7 +94,7 @@ func TestSubtractsTotalWithheldFromBothEarners(t *testing.T) {
 		},
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC), 0)
+	result := withholding(schedule, earners, time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC))
 
 	// Total withheld should include both earners.
 	if result.TotalWithheldToDate != 18000 {
@@ -120,7 +129,7 @@ func TestRecommendsAdditionalWithholdingForHigherEarner(t *testing.T) {
 		},
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), 0)
+	result := withholding(schedule, earners, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
 
 	// Higher earner should be Eve.
 	if result.HigherEarnerName != "Eve" {
@@ -163,22 +172,10 @@ func TestAdjustsRecommendationWithMorePayPeriods(t *testing.T) {
 	}
 
 	// Mid-year: 13 periods uploaded.
-	earlyResult := calc.CalculateWithholding(
-		schedule,
-		makeEarners(13, 65000, 6500),
-		0, 26,
-		time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
-		0,
-	)
+	earlyResult := withholding(schedule, makeEarners(13, 65000, 6500), time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
 
 	// Late year: 20 periods uploaded.
-	lateResult := calc.CalculateWithholding(
-		schedule,
-		makeEarners(20, 100000, 10000),
-		0, 26,
-		time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC),
-		0,
-	)
+	lateResult := withholding(schedule, makeEarners(20, 100000, 10000), time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC))
 
 	// With fewer remaining pay periods, the per-paycheck additional should be higher
 	// (assuming similar under-withholding). The late result has fewer remaining periods
@@ -207,8 +204,15 @@ func TestSupplementalIncomeAffectsLiability(t *testing.T) {
 		},
 	}
 
-	withoutSupp := calc.CalculateWithholding(schedule, earners, 0, 26, time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC), 0)
-	withSupp := calc.CalculateWithholding(schedule, earners, 5000, 26, time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC), 0)
+	ref := time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC)
+	withoutSupp := withholding(schedule, earners, ref)
+	withSupp := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		SupplementalIncome:     5000,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          ref,
+	})
 
 	if withSupp.TotalTaxLiability <= withoutSupp.TotalTaxLiability {
 		t.Error("supplemental income should increase tax liability")
@@ -225,7 +229,11 @@ func TestZeroEarners(t *testing.T) {
 		t.Fatal("expected brackets")
 	}
 
-	result := calc.CalculateWithholding(schedule, nil, 0, 26, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC), 0)
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
+	})
 	if result.TotalTaxLiability != 0 {
 		t.Errorf("TotalTaxLiability = %v, want 0 for no earners", result.TotalTaxLiability)
 	}
@@ -249,7 +257,7 @@ func TestOverwithheld(t *testing.T) {
 		},
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC), 0)
+	result := withholding(schedule, earners, time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC))
 
 	// Should not recommend additional withholding.
 	if result.AdditionalPerPaycheck > 0 {
@@ -289,8 +297,14 @@ func TestPreTaxDeductionsReduceTaxLiability(t *testing.T) {
 
 	ref := time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC)
 
-	withoutDeductions := calc.CalculateWithholding(schedule, earners, 0, 26, ref, 0)
-	withDeductions := calc.CalculateWithholding(schedule, earners, 0, 26, ref, 30000)
+	withoutDeductions := withholding(schedule, earners, ref)
+	withDeductions := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          ref,
+		PreTaxDeductions:       30000,
+	})
 
 	if withDeductions.TotalTaxLiability >= withoutDeductions.TotalTaxLiability {
 		t.Errorf("pre-tax deductions should reduce tax liability: without=%v, with=%v",
@@ -305,5 +319,52 @@ func TestPreTaxDeductionsReduceTaxLiability(t *testing.T) {
 	if withDeductions.EstimatedAnnualIncome != withoutDeductions.EstimatedAnnualIncome {
 		t.Errorf("EstimatedAnnualIncome should be same regardless of deductions: without=%v, with=%v",
 			withoutDeductions.EstimatedAnnualIncome, withDeductions.EstimatedAnnualIncome)
+	}
+}
+
+func TestProjectedRemainingOverridesAverageEstimate(t *testing.T) {
+	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
+	if schedule == nil {
+		t.Fatal("expected brackets")
+	}
+
+	// Earner with low average withholding (early paychecks had less withheld)
+	// but whose current paycheck rate is higher.
+	earners := []calc.EarnerSummary{
+		{
+			Name:                 "Mia",
+			TotalGrossPay:        80000,
+			TotalFederalWithheld: 6000, // low average: 6000/13 = ~461/period
+			PayPeriodsUploaded:   13,
+			LatestYTDGross:       80000,
+			LatestYTDFedWithheld: 6000,
+			AvgGrossPerPeriod:    80000.0 / 13.0,
+		},
+	}
+
+	ref := time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC)
+
+	// Without EOY projection: uses average-based estimate.
+	withoutProjection := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          ref,
+	})
+
+	// With EOY projection: higher projected remaining (e.g., recent paychecks withhold more).
+	withProjection := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:                      schedule,
+		Earners:                       earners,
+		TotalPayPeriodsPerYear:        26,
+		ReferenceDate:                 ref,
+		ProjectedRemainingWithholding: 10000, // higher than average would predict
+	})
+
+	// The projected version should recommend less additional withholding
+	// since it expects more to come in naturally.
+	if withProjection.AdditionalPerPaycheck >= withoutProjection.AdditionalPerPaycheck {
+		t.Errorf("with EOY projection should recommend less additional: without=%v, with=%v",
+			withoutProjection.AdditionalPerPaycheck, withProjection.AdditionalPerPaycheck)
 	}
 }

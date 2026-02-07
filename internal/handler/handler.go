@@ -212,14 +212,22 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to get total deductions: %v", err)
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now(), totalPreTaxDeductions)
-
-	// Build EOY projection per person.
+	// Build EOY projection per person first, so the calculator can use
+	// the same projected remaining withholding for its recommendation.
 	paystubsByPerson := make(map[string][]db.Paystub)
 	for _, p := range paystubs {
 		paystubsByPerson[p.PersonName] = append(paystubsByPerson[p.PersonName], p)
 	}
 	eoyProjection := calc.ProjectEOYWithholding(paystubsByPerson, time.Now(), year)
+
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:                      schedule,
+		Earners:                       earners,
+		TotalPayPeriodsPerYear:        26,
+		ReferenceDate:                 time.Now(),
+		PreTaxDeductions:              totalPreTaxDeductions,
+		ProjectedRemainingWithholding: eoyProjection.CombinedProjected,
+	})
 
 	data := map[string]interface{}{
 		"Year":                 year,
