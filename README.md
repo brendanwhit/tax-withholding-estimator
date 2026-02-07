@@ -76,6 +76,12 @@ Visit `/brackets` to browse federal tax brackets by year (2025/2026) and filing 
 ## Development
 
 ```bash
+# Run in dev mode (enables /admin/clear-db endpoint)
+make dev
+
+# Run in dev mode with live reload (rebuilds on file changes)
+make dev-watch
+
 # Run tests
 make test
 
@@ -88,6 +94,12 @@ make build
 # Run all checks (lint + test + build)
 make check
 ```
+
+### Dev-Only Features
+
+When running with `make dev` (which uses `-tags dev`), the following features are available:
+
+- **POST /admin/clear-db** — Clears all data from the database (paystubs, filing status, cached brackets). Useful for testing with a clean slate. This endpoint does not exist in production builds.
 
 ## Project Structure
 

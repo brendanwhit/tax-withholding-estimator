@@ -23,7 +23,7 @@ func TestNewAndMigrate(t *testing.T) {
 	}
 
 	// Verify tables exist by querying them.
-	tables := []string{"tax_brackets", "standard_deductions", "filing_status_config", "paystubs", "bracket_cache", "schema_migrations"}
+	tables := []string{"tax_brackets", "standard_deductions", "filing_status_config", "paystubs", "bracket_cache", "schema_migrations", "pre_tax_deductions", "contribution_limits"}
 	for _, table := range tables {
 		var count int
 		err := store.DB.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)

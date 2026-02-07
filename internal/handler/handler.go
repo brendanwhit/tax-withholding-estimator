@@ -65,6 +65,24 @@ func NewServer(store *db.Store, tmplDir string) (*Server, error) {
 				return s
 			}
 		},
+		"formatDeductionType": func(s string) string {
+			switch s {
+			case "401k":
+				return "401(k)"
+			case "403b":
+				return "403(b)"
+			case "hsa":
+				return "HSA"
+			case "fsa_health":
+				return "Healthcare FSA"
+			case "fsa_dependent":
+				return "Dependent Care FSA"
+			case "commuter":
+				return "Commuter"
+			default:
+				return s
+			}
+		},
 	}
 
 	pattern := filepath.Join(tmplDir, "*.html")
@@ -96,12 +114,24 @@ func formatWithCommas(f float64) string {
 	return string(result) + "." + decPart
 }
 
+// devRoute is used by build-tag-gated files to register additional routes.
+type devRoute struct {
+	pattern string
+	handler func(s *Server) http.HandlerFunc
+}
+
+var devRoutes []devRoute
+
 // RegisterRoutes sets up all HTTP routes.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", s.handleDashboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/filing-status", s.handleFilingStatus)
 	mux.HandleFunc("/brackets", s.handleBrackets)
+
+	for _, r := range devRoutes {
+		mux.HandleFunc(r.pattern, r.handler(s))
+	}
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -135,15 +165,81 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	earners := buildEarnerSummaries(paystubs)
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now())
+	// Load deduction data for the dashboard.
+	deductionSummaries, err := s.Store.GetDeductionSummaryByYear(year)
+	if err != nil {
+		log.Printf("failed to get deduction summaries: %v", err)
+	}
+	limits, err := s.Store.GetOrCacheContributionLimits(year)
+	if err != nil {
+		log.Printf("failed to get contribution limits: %v", err)
+	}
+
+	// Build limit lookup and warning info.
+	limitMap := make(map[string]float64)
+	for _, l := range limits {
+		limitMap[l.DeductionType] = l.AnnualLimit
+	}
+
+	type deductionWarning struct {
+		PersonName    string
+		DeductionType string
+		YTDTotal      float64
+		Limit         float64
+		Pct           float64
+	}
+	var warnings []deductionWarning
+	for _, ds := range deductionSummaries {
+		limit, ok := limitMap[ds.DeductionType]
+		if !ok || limit == 0 {
+			continue
+		}
+		pct := ds.TotalAmount / limit
+		if pct >= 0.9 {
+			warnings = append(warnings, deductionWarning{
+				PersonName:    ds.PersonName,
+				DeductionType: ds.DeductionType,
+				YTDTotal:      ds.TotalAmount,
+				Limit:         limit,
+				Pct:           pct * 100,
+			})
+		}
+	}
+
+	// Calculate total pre-tax deductions for tax calculation adjustment.
+	totalPreTaxDeductions, err := s.Store.GetTotalPreTaxDeductionsByYear(year)
+	if err != nil {
+		log.Printf("failed to get total deductions: %v", err)
+	}
+
+	// Build EOY projection per person first, so the calculator can use
+	// the same projected remaining withholding for its recommendation.
+	paystubsByPerson := make(map[string][]db.Paystub)
+	for _, p := range paystubs {
+		paystubsByPerson[p.PersonName] = append(paystubsByPerson[p.PersonName], p)
+	}
+	eoyProjection := calc.ProjectEOYWithholding(paystubsByPerson, time.Now(), year)
+
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:                      schedule,
+		Earners:                       earners,
+		TotalPayPeriodsPerYear:        26,
+		ReferenceDate:                 time.Now(),
+		PreTaxDeductions:              totalPreTaxDeductions,
+		ProjectedRemainingWithholding: eoyProjection.CombinedProjected,
+	})
 
 	data := map[string]interface{}{
-		"Year":          year,
-		"FilingStatus":  filingStatus,
-		"Result":        result,
-		"Paystubs":      paystubs,
-		"HasPaystubs":   len(paystubs) > 0,
-		"AllStatuses":   tax.AllFilingStatuses(),
+		"Year":                 year,
+		"FilingStatus":         filingStatus,
+		"Result":               result,
+		"Paystubs":             paystubs,
+		"HasPaystubs":          len(paystubs) > 0,
+		"AllStatuses":          tax.AllFilingStatuses(),
+		"DeductionSummaries":   deductionSummaries,
+		"DeductionWarnings":    warnings,
+		"TotalPreTaxDeductions": totalPreTaxDeductions,
+		"EOYProjection":        eoyProjection,
 	}
 
 	if err := s.Tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
@@ -267,9 +363,25 @@ func (s *Server) processUploadedFile(header *multipart.FileHeader) uploadResult 
 		paystub.YTDFederalTaxWithheld = &data.YTDFederalTaxWithheld
 	}
 
-	if _, err := s.Store.SavePaystub(paystub); err != nil {
+	paystubID, err := s.Store.SavePaystub(paystub)
+	if err != nil {
 		result.Error = "Failed to save paystub: " + err.Error()
 		return result
+	}
+
+	// Save pre-tax deductions if extracted.
+	for _, d := range data.Deductions {
+		ded := &db.PreTaxDeduction{
+			PaystubID:     paystubID,
+			DeductionType: d.Type,
+			Amount:        d.Amount,
+		}
+		if d.YTDAmount > 0 {
+			ded.YTDAmount = &d.YTDAmount
+		}
+		if saveErr := s.Store.SavePreTaxDeduction(ded); saveErr != nil {
+			log.Printf("failed to save deduction %s for paystub %d: %v", d.Type, paystubID, saveErr)
+		}
 	}
 
 	result.Success = true
@@ -381,14 +493,15 @@ func buildEarnerSummaries(paystubs []db.Paystub) []calc.EarnerSummary {
 			e.TotalFederalWithheld += s.FederalTaxWithheld
 		}
 
-		// Use latest stub for YTD values.
+		// Use latest stub for YTD values, but sanity-check: YTD must be >= sum
+		// of uploaded gross (otherwise the parser grabbed a wrong number).
 		latest := stubs[len(stubs)-1]
-		if latest.YTDGrossPay != nil {
+		if latest.YTDGrossPay != nil && *latest.YTDGrossPay >= e.TotalGrossPay {
 			e.LatestYTDGross = *latest.YTDGrossPay
 		} else {
 			e.LatestYTDGross = e.TotalGrossPay
 		}
-		if latest.YTDFederalTaxWithheld != nil {
+		if latest.YTDFederalTaxWithheld != nil && *latest.YTDFederalTaxWithheld >= e.TotalFederalWithheld {
 			e.LatestYTDFedWithheld = *latest.YTDFederalTaxWithheld
 		} else {
 			e.LatestYTDFedWithheld = e.TotalFederalWithheld

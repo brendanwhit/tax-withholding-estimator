@@ -25,7 +25,7 @@
     <div id="drop-zone" class="drop-zone">
         <div class="drop-zone-text">
             <p>Drag & drop PDF files here</p>
-            <p style="font-size: 0.9em; color: #718096;">or</p>
+            <p style="font-size: 0.9em; color: var(--text-muted);">or</p>
         </div>
         <label for="paystub" class="file-label">
             <span class="btn btn-secondary">Select Files</span>
@@ -43,7 +43,7 @@
 
 <div class="card">
     <h2>How It Works</h2>
-    <ol style="padding-left:20px; color:#4a5568;">
+    <ol style="padding-left:20px; color:var(--text-label);">
         <li style="margin-bottom:8px;">Upload one or more PDF paystubs (drag & drop or click to select)</li>
         <li style="margin-bottom:8px;">The parser extracts gross pay, federal tax withheld, and pay period dates</li>
         <li style="margin-bottom:8px;">All sensitive data (SSN, address, bank info) is stripped - only your first name is stored</li>
@@ -53,17 +53,17 @@
 
 <style>
     .drop-zone {
-        border: 2px dashed #cbd5e0;
+        border: 2px dashed var(--border-input);
         border-radius: 8px;
         padding: 32px;
         text-align: center;
         transition: all 0.2s ease;
-        background: #f7fafc;
+        background: var(--bg-stat);
         margin-bottom: 16px;
     }
     .drop-zone.drag-over {
-        border-color: #2b6cb0;
-        background: #ebf8ff;
+        border-color: var(--btn-primary);
+        background: var(--stat-highlight-bg);
     }
     .drop-zone.uploading {
         opacity: 0.7;
@@ -71,7 +71,7 @@
     }
     .drop-zone-text p {
         margin: 0 0 8px 0;
-        color: #4a5568;
+        color: var(--text-label);
     }
     .file-label {
         cursor: pointer;
@@ -87,8 +87,8 @@
         align-items: center;
         gap: 12px;
         padding: 8px 12px;
-        background: white;
-        border: 1px solid #e2e8f0;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
         border-radius: 4px;
         margin-bottom: 4px;
     }
@@ -101,49 +101,49 @@
         flex: 1;
     }
     .file-item .file-name {
-        color: #2d3748;
+        color: var(--text-heading2);
         font-size: 0.9em;
     }
     .file-item .file-size {
-        color: #718096;
+        color: var(--text-muted);
         font-size: 0.8em;
     }
     .file-item .remove-btn {
         background: none;
         border: none;
-        color: #e53e3e;
+        color: var(--alert-error-border);
         cursor: pointer;
         padding: 4px 8px;
         font-size: 1.2em;
         line-height: 1;
     }
     .file-item .remove-btn:hover {
-        color: #c53030;
+        color: var(--alert-error-text);
     }
     .file-item.success {
-        border-color: #9ae6b4;
-        background: #f0fff4;
+        border-color: var(--alert-success-border);
+        background: var(--alert-success-bg);
     }
     .file-item.success .file-icon {
-        color: #38a169;
+        color: var(--stat-success-border);
     }
     .file-item.error {
-        border-color: #feb2b2;
-        background: #fff5f5;
+        border-color: var(--alert-error-border);
+        background: var(--alert-error-bg);
     }
     .file-item.error .file-icon {
-        color: #e53e3e;
+        color: var(--alert-error-border);
     }
     .file-item .error-msg {
-        color: #c53030;
+        color: var(--alert-error-text);
         font-size: 0.8em;
     }
     #submit-btn:disabled {
-        background: #a0aec0;
+        background: var(--btn-secondary);
         cursor: not-allowed;
     }
     #submit-btn.uploading {
-        background: #4a5568;
+        background: var(--btn-secondary-hover);
     }
     .button-row {
         display: flex;
@@ -320,13 +320,13 @@
                 }
             });
 
-            // Only auto-clear if all files succeeded
+            hasResults = true;
+            clearBtn.style.display = 'inline-block';
+
+            // If all files succeeded, clear the file list but keep the result (dashboard link)
             if (allSuccess && alerts.length > 0) {
-                setTimeout(clearFiles, 3000);
-            } else {
-                // Show clear button for errors
-                hasResults = true;
-                clearBtn.style.display = 'inline-block';
+                selectedFiles = [];
+                updateFileList();
             }
 
         } catch (err) {

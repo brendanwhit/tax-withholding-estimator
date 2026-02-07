@@ -31,16 +31,28 @@ type WithholdingResult struct {
 	HigherEarnerName      string
 	Earners               []EarnerSummary
 	SupplementalIncome    float64
+	PreTaxDeductions      float64
+}
+
+// WithholdingInput holds all inputs for the withholding calculation.
+type WithholdingInput struct {
+	Schedule               *tax.BracketSchedule
+	Earners                []EarnerSummary
+	SupplementalIncome     float64
+	TotalPayPeriodsPerYear int
+	ReferenceDate          time.Time
+	PreTaxDeductions       float64
+	// ProjectedRemainingWithholding, if > 0, overrides the internal average-based
+	// estimate with the EOY projection's number for consistency.
+	ProjectedRemainingWithholding float64
 }
 
 // CalculateWithholding computes the withholding recommendation.
-func CalculateWithholding(
-	schedule *tax.BracketSchedule,
-	earners []EarnerSummary,
-	supplementalIncome float64,
-	totalPayPeriodsPerYear int,
-	referenceDate time.Time,
-) *WithholdingResult {
+func CalculateWithholding(in WithholdingInput) *WithholdingResult {
+	schedule := in.Schedule
+	earners := in.Earners
+	totalPayPeriodsPerYear := in.TotalPayPeriodsPerYear
+	referenceDate := in.ReferenceDate
 	if totalPayPeriodsPerYear <= 0 {
 		totalPayPeriodsPerYear = 26 // default biweekly
 	}
@@ -49,7 +61,8 @@ func CalculateWithholding(
 		TaxYear:            schedule.TaxYear,
 		FilingStatus:       schedule.FilingStatus,
 		Earners:            earners,
-		SupplementalIncome: supplementalIncome,
+		SupplementalIncome: in.SupplementalIncome,
+		PreTaxDeductions:   in.PreTaxDeductions,
 	}
 
 	// Find higher earner and calculate totals.
@@ -76,10 +89,14 @@ func CalculateWithholding(
 	}
 
 	// Estimate annual income by projecting from current data.
-	result.EstimatedAnnualIncome = estimateAnnualIncome(earners, totalPayPeriodsPerYear) + supplementalIncome
+	result.EstimatedAnnualIncome = estimateAnnualIncome(earners, totalPayPeriodsPerYear) + in.SupplementalIncome
 
-	// Calculate total tax liability on the estimated annual income.
-	result.TotalTaxLiability = schedule.CalculateTax(result.EstimatedAnnualIncome)
+	// Calculate total tax liability on estimated income minus pre-tax deductions.
+	taxableIncome := result.EstimatedAnnualIncome - in.PreTaxDeductions
+	if taxableIncome < 0 {
+		taxableIncome = 0
+	}
+	result.TotalTaxLiability = schedule.CalculateTax(taxableIncome)
 
 	// Remaining tax owed.
 	result.RemainingTaxOwed = result.TotalTaxLiability - result.TotalWithheldToDate
@@ -94,8 +111,11 @@ func CalculateWithholding(
 
 	// Additional withholding per paycheck for the higher earner.
 	if result.RemainingPayPeriods > 0 && result.RemainingTaxOwed > 0 {
-		// Estimate what will be withheld normally in remaining periods.
-		normalWithholdingRemaining := estimateNormalWithholdingRemaining(earners, result.RemainingPayPeriods, totalPayPeriodsPerYear)
+		// Use EOY projection if provided, otherwise fall back to average-based estimate.
+		normalWithholdingRemaining := in.ProjectedRemainingWithholding
+		if normalWithholdingRemaining == 0 {
+			normalWithholdingRemaining = estimateNormalWithholdingRemaining(earners, result.RemainingPayPeriods, totalPayPeriodsPerYear)
+		}
 		gap := result.TotalTaxLiability - result.TotalWithheldToDate - normalWithholdingRemaining
 		if gap > 0 {
 			result.AdditionalPerPaycheck = gap / float64(result.RemainingPayPeriods)

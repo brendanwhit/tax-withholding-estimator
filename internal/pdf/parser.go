@@ -11,15 +11,23 @@ import (
 	gopdf "github.com/ledongthuc/pdf"
 )
 
+// Deduction represents a single pre-tax deduction extracted from a paystub.
+type Deduction struct {
+	Type      string  // "401k", "403b", "hsa", "fsa_health", "fsa_dependent", "commuter"
+	Amount    float64
+	YTDAmount float64
+}
+
 // PaystubData holds the extracted data from a paystub PDF.
 type PaystubData struct {
-	FirstName            string
-	GrossPay             float64
-	FederalTaxWithheld   float64
-	PayPeriodStart       time.Time
-	PayPeriodEnd         time.Time
-	YTDGrossPay          float64
+	FirstName             string
+	GrossPay              float64
+	FederalTaxWithheld    float64
+	PayPeriodStart        time.Time
+	PayPeriodEnd          time.Time
+	YTDGrossPay           float64
 	YTDFederalTaxWithheld float64
+	Deductions            []Deduction
 }
 
 // ParseError represents a clear error from the PDF parser.
@@ -116,6 +124,19 @@ var (
 
 	// Name pattern - handles "PAID TO:", "Pay To:", "Employee:", "Name:"
 	namePattern = regexp.MustCompile(`(?i)(?:employee|name|paid?\s*to)[\s:]*([A-Za-z]+)`)
+
+	// Pre-tax deduction patterns.
+	deduction401kPattern = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deduction403bPattern = regexp.MustCompile(`(?i)403\s*\(?b\)?[\s:]*\$?([0-9,]+\.\d{2})`)
+	deductionHSAPattern  = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deductionFSAHealthPattern    = regexp.MustCompile(`(?i)(?:(?:health(?:care)?\s*)?f\.?s\.?a\.?|flex(?:ible)?\s*spending)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deductionFSADependentPattern = regexp.MustCompile(`(?i)(?:dep(?:endent)?\s*(?:care\s*)?f\.?s\.?a\.?|dependent\s*care)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deductionCommuterPattern     = regexp.MustCompile(`(?i)(?:commuter|transit|parking\s*benefit)[\s:]*\$?([0-9,]+\.\d{2})`)
+
+	// YTD deduction patterns (optional).
+	ytdDeduction401kPattern = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
+	ytdDeduction403bPattern = regexp.MustCompile(`(?i)403\s*\(?b\)?[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
+	ytdDeductionHSAPattern  = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
 )
 
 func extractFields(text string) (*PaystubData, error) {
@@ -188,6 +209,9 @@ func extractFields(text string) (*PaystubData, error) {
 		}
 	}
 
+	// Extract pre-tax deductions (optional — not a hard failure).
+	data.Deductions = extractDeductions(text)
+
 	if len(missing) > 0 {
 		return nil, &ParseError{
 			Message: fmt.Sprintf("could not extract required fields: %s", strings.Join(missing, ", ")),
@@ -195,6 +219,43 @@ func extractFields(text string) (*PaystubData, error) {
 	}
 
 	return data, nil
+}
+
+func extractDeductions(text string) []Deduction {
+	type deductionSpec struct {
+		typ        string
+		pattern    *regexp.Regexp
+		ytdPattern *regexp.Regexp // nil if no YTD pattern
+	}
+
+	specs := []deductionSpec{
+		{"401k", deduction401kPattern, ytdDeduction401kPattern},
+		{"403b", deduction403bPattern, ytdDeduction403bPattern},
+		{"hsa", deductionHSAPattern, ytdDeductionHSAPattern},
+		{"fsa_dependent", deductionFSADependentPattern, nil},
+		{"fsa_health", deductionFSAHealthPattern, nil},
+		{"commuter", deductionCommuterPattern, nil},
+	}
+
+	var deductions []Deduction
+	for _, spec := range specs {
+		if m := spec.pattern.FindStringSubmatch(text); len(m) > 1 {
+			amount, err := parseAmount(m[1])
+			if err != nil || amount == 0 {
+				continue
+			}
+			d := Deduction{Type: spec.typ, Amount: amount}
+			if spec.ytdPattern != nil {
+				if ym := spec.ytdPattern.FindStringSubmatch(text); len(ym) > 1 {
+					if ytd, err := parseAmount(ym[1]); err == nil {
+						d.YTDAmount = ytd
+					}
+				}
+			}
+			deductions = append(deductions, d)
+		}
+	}
+	return deductions
 }
 
 func parseAmount(s string) (float64, error) {

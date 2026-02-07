@@ -6,19 +6,135 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tax Withholding Estimator</title>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script>
+        // Apply theme before paint to prevent flash
+        (function() {
+            var saved = localStorage.getItem('theme');
+            if (saved === 'dark' || saved === 'light') {
+                document.documentElement.setAttribute('data-theme', saved);
+            }
+        })();
+    </script>
     <style>
+        :root {
+            --bg-page: #f5f5f5;
+            --bg-card: #ffffff;
+            --bg-nav: #1a365d;
+            --bg-stat: #f7fafc;
+            --bg-th: #f7fafc;
+            --text-primary: #333333;
+            --text-heading: #1a365d;
+            --text-heading2: #2d3748;
+            --text-muted: #718096;
+            --text-label: #4a5568;
+            --text-nav: #e2e8f0;
+            --text-nav-hover: #ffffff;
+            --border-color: #e2e8f0;
+            --border-input: #cbd5e0;
+            --btn-primary: #2b6cb0;
+            --btn-primary-hover: #2c5282;
+            --btn-secondary: #718096;
+            --btn-secondary-hover: #4a5568;
+            --stat-highlight-bg: #ebf8ff;
+            --stat-highlight-border: #90cdf4;
+            --stat-warning-bg: #fffbeb;
+            --stat-warning-border: #fbd38d;
+            --stat-success-bg: #f0fff4;
+            --stat-success-border: #9ae6b4;
+            --alert-success-bg: #f0fff4;
+            --alert-success-text: #276749;
+            --alert-success-border: #9ae6b4;
+            --alert-error-bg: #fff5f5;
+            --alert-error-text: #9b2c2c;
+            --alert-error-border: #feb2b2;
+            --shadow: rgba(0,0,0,0.1);
+            --select-bg: #ffffff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --bg-page: #1a202c;
+                --bg-card: #2d3748;
+                --bg-nav: #0f1a2e;
+                --bg-stat: #2d3748;
+                --bg-th: #2d3748;
+                --text-primary: #e2e8f0;
+                --text-heading: #90cdf4;
+                --text-heading2: #e2e8f0;
+                --text-muted: #a0aec0;
+                --text-label: #cbd5e0;
+                --text-nav: #cbd5e0;
+                --text-nav-hover: #ffffff;
+                --border-color: #4a5568;
+                --border-input: #4a5568;
+                --btn-primary: #3182ce;
+                --btn-primary-hover: #2b6cb0;
+                --btn-secondary: #718096;
+                --btn-secondary-hover: #a0aec0;
+                --stat-highlight-bg: #1a365d;
+                --stat-highlight-border: #2b6cb0;
+                --stat-warning-bg: #744210;
+                --stat-warning-border: #d69e2e;
+                --stat-success-bg: #1c4532;
+                --stat-success-border: #38a169;
+                --alert-success-bg: #1c4532;
+                --alert-success-text: #9ae6b4;
+                --alert-success-border: #38a169;
+                --alert-error-bg: #63171b;
+                --alert-error-text: #feb2b2;
+                --alert-error-border: #e53e3e;
+                --shadow: rgba(0,0,0,0.3);
+                --select-bg: #2d3748;
+            }
+        }
+
+        [data-theme="dark"] {
+            --bg-page: #1a202c;
+            --bg-card: #2d3748;
+            --bg-nav: #0f1a2e;
+            --bg-stat: #2d3748;
+            --bg-th: #2d3748;
+            --text-primary: #e2e8f0;
+            --text-heading: #90cdf4;
+            --text-heading2: #e2e8f0;
+            --text-muted: #a0aec0;
+            --text-label: #cbd5e0;
+            --text-nav: #cbd5e0;
+            --text-nav-hover: #ffffff;
+            --border-color: #4a5568;
+            --border-input: #4a5568;
+            --btn-primary: #3182ce;
+            --btn-primary-hover: #2b6cb0;
+            --btn-secondary: #718096;
+            --btn-secondary-hover: #a0aec0;
+            --stat-highlight-bg: #1a365d;
+            --stat-highlight-border: #2b6cb0;
+            --stat-warning-bg: #744210;
+            --stat-warning-border: #d69e2e;
+            --stat-success-bg: #1c4532;
+            --stat-success-border: #38a169;
+            --alert-success-bg: #1c4532;
+            --alert-success-text: #9ae6b4;
+            --alert-success-border: #38a169;
+            --alert-error-bg: #63171b;
+            --alert-error-text: #feb2b2;
+            --alert-error-border: #e53e3e;
+            --shadow: rgba(0,0,0,0.3);
+            --select-bg: #2d3748;
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: var(--text-primary);
             max-width: 960px;
             margin: 0 auto;
             padding: 20px;
-            background: #f5f5f5;
+            background: var(--bg-page);
         }
         nav {
-            background: #1a365d;
+            background: var(--bg-nav);
             color: white;
             padding: 16px 24px;
             margin: -20px -20px 24px -20px;
@@ -26,18 +142,30 @@
             gap: 24px;
             align-items: center;
         }
-        nav a { color: #e2e8f0; text-decoration: none; font-weight: 500; }
-        nav a:hover { color: white; }
+        nav a { color: var(--text-nav); text-decoration: none; font-weight: 500; }
+        nav a:hover { color: var(--text-nav-hover); }
         nav .brand { font-size: 1.2em; font-weight: 700; color: white; }
+        .theme-toggle {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: var(--text-nav);
+            cursor: pointer;
+            font-size: 1.3em;
+            padding: 4px 8px;
+            border-radius: 4px;
+            line-height: 1;
+        }
+        .theme-toggle:hover { color: var(--text-nav-hover); background: rgba(255,255,255,0.1); }
         .card {
-            background: white;
+            background: var(--bg-card);
             border-radius: 8px;
             padding: 24px;
             margin-bottom: 20px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            box-shadow: 0 1px 3px var(--shadow);
         }
-        h1 { font-size: 1.5em; margin-bottom: 16px; color: #1a365d; }
-        h2 { font-size: 1.2em; margin-bottom: 12px; color: #2d3748; }
+        h1 { font-size: 1.5em; margin-bottom: 16px; color: var(--text-heading); }
+        h2 { font-size: 1.2em; margin-bottom: 12px; color: var(--text-heading2); }
         .stat-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -45,35 +173,37 @@
             margin-bottom: 20px;
         }
         .stat {
-            background: #f7fafc;
-            border: 1px solid #e2e8f0;
+            background: var(--bg-stat);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 16px;
             text-align: center;
         }
-        .stat .label { font-size: 0.85em; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; }
-        .stat .value { font-size: 1.5em; font-weight: 700; color: #1a365d; margin-top: 4px; }
-        .stat.highlight { background: #ebf8ff; border-color: #90cdf4; }
-        .stat.warning { background: #fffbeb; border-color: #fbd38d; }
-        .stat.success { background: #f0fff4; border-color: #9ae6b4; }
+        .stat .label { font-size: 0.85em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat .value { font-size: 1.5em; font-weight: 700; color: var(--text-heading); margin-top: 4px; }
+        .stat.highlight { background: var(--stat-highlight-bg); border-color: var(--stat-highlight-border); }
+        .stat.warning { background: var(--stat-warning-bg); border-color: var(--stat-warning-border); }
+        .stat.success { background: var(--stat-success-bg); border-color: var(--stat-success-border); }
         table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
-        th { background: #f7fafc; font-weight: 600; color: #4a5568; font-size: 0.85em; text-transform: uppercase; }
-        tr:hover { background: #f7fafc; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { background: var(--bg-th); font-weight: 600; color: var(--text-label); font-size: 0.85em; text-transform: uppercase; }
+        tr:hover { background: var(--bg-stat); }
         form { margin-top: 12px; }
-        label { display: block; margin-bottom: 6px; font-weight: 500; color: #4a5568; }
+        label { display: block; margin-bottom: 6px; font-weight: 500; color: var(--text-label); }
         select, input[type="file"], input[type="number"] {
             width: 100%;
             padding: 10px 12px;
-            border: 1px solid #cbd5e0;
+            border: 1px solid var(--border-input);
             border-radius: 6px;
             font-size: 1em;
             margin-bottom: 12px;
+            background: var(--select-bg);
+            color: var(--text-primary);
         }
         button, .btn {
             display: inline-block;
             padding: 10px 20px;
-            background: #2b6cb0;
+            background: var(--btn-primary);
             color: white;
             border: none;
             border-radius: 6px;
@@ -81,12 +211,12 @@
             cursor: pointer;
             text-decoration: none;
         }
-        button:hover, .btn:hover { background: #2c5282; }
-        .btn-secondary { background: #718096; }
-        .btn-secondary:hover { background: #4a5568; }
+        button:hover, .btn:hover { background: var(--btn-primary-hover); }
+        .btn-secondary { background: var(--btn-secondary); }
+        .btn-secondary:hover { background: var(--btn-secondary-hover); }
         .alert { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
-        .alert-success { background: #f0fff4; color: #276749; border: 1px solid #9ae6b4; }
-        .alert-error { background: #fff5f5; color: #9b2c2c; border: 1px solid #feb2b2; }
+        .alert-success { background: var(--alert-success-bg); color: var(--alert-success-text); border: 1px solid var(--alert-success-border); }
+        .alert-error { background: var(--alert-error-bg); color: var(--alert-error-text); border: 1px solid var(--alert-error-border); }
         .bracket-bar {
             height: 24px;
             border-radius: 4px;
@@ -95,7 +225,7 @@
             margin: 8px 0;
         }
         .bracket-segment { height: 100%; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.75em; font-weight: 600; }
-        .empty-state { text-align: center; padding: 40px; color: #718096; }
+        .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
         .empty-state p { margin-bottom: 16px; }
     </style>
 </head>
@@ -105,7 +235,31 @@
         <a href="/">Dashboard</a>
         <a href="/upload">Upload Paystub</a>
         <a href="/brackets">Tax Brackets</a>
+        <button class="theme-toggle" id="theme-toggle" title="Toggle dark/light theme" aria-label="Toggle theme">&#9790;</button>
     </nav>
+    <script>
+        (function() {
+            var btn = document.getElementById('theme-toggle');
+            function getEffectiveTheme() {
+                var saved = localStorage.getItem('theme');
+                if (saved === 'dark' || saved === 'light') return saved;
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            function updateIcon() {
+                btn.innerHTML = getEffectiveTheme() === 'dark' ? '&#9788;' : '&#9790;';
+            }
+            updateIcon();
+            btn.addEventListener('click', function() {
+                var next = getEffectiveTheme() === 'dark' ? 'light' : 'dark';
+                localStorage.setItem('theme', next);
+                document.documentElement.setAttribute('data-theme', next);
+                updateIcon();
+            });
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+                if (!localStorage.getItem('theme')) updateIcon();
+            });
+        })();
+    </script>
 {{end}}
 
 {{define "footer"}}
