@@ -320,13 +320,13 @@
                 }
             });
 
-            // Only auto-clear if all files succeeded
+            hasResults = true;
+            clearBtn.style.display = 'inline-block';
+
+            // If all files succeeded, clear the file list but keep the result (dashboard link)
             if (allSuccess && alerts.length > 0) {
-                setTimeout(clearFiles, 3000);
-            } else {
-                // Show clear button for errors
-                hasResults = true;
-                clearBtn.style.display = 'inline-block';
+                selectedFiles = [];
+                updateFileList();
             }
 
         } catch (err) {
