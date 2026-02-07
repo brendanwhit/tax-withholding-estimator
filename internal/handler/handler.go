@@ -212,7 +212,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		log.Printf("failed to get total deductions: %v", err)
 	}
 
-	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now())
+	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now(), totalPreTaxDeductions)
 
 	// Build EOY projection per person.
 	paystubsByPerson := make(map[string][]db.Paystub)

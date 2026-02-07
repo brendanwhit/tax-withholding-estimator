@@ -34,7 +34,7 @@
             <div class="label">Total Withheld To Date</div>
             <div class="value">{{formatMoney .Result.TotalWithheldToDate}}</div>
         </div>
-        {{if gt .Result.RemainingTaxOwed 0}}
+        {{if gt .Result.RemainingTaxOwed 0.0}}
         <div class="stat warning">
             <div class="label">Remaining Tax Owed</div>
             <div class="value">{{formatMoney .Result.RemainingTaxOwed}}</div>
@@ -47,7 +47,7 @@
         {{end}}
     </div>
 
-    {{if gt .Result.AdditionalPerPaycheck 0}}
+    {{if gt .Result.AdditionalPerPaycheck 0.0}}
     <div class="stat-grid">
         <div class="stat highlight">
             <div class="label">Recommended Additional per Paycheck</div>

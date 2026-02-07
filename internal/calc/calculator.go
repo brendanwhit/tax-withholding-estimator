@@ -31,6 +31,7 @@ type WithholdingResult struct {
 	HigherEarnerName      string
 	Earners               []EarnerSummary
 	SupplementalIncome    float64
+	PreTaxDeductions      float64
 }
 
 // CalculateWithholding computes the withholding recommendation.
@@ -40,6 +41,7 @@ func CalculateWithholding(
 	supplementalIncome float64,
 	totalPayPeriodsPerYear int,
 	referenceDate time.Time,
+	preTaxDeductions float64,
 ) *WithholdingResult {
 	if totalPayPeriodsPerYear <= 0 {
 		totalPayPeriodsPerYear = 26 // default biweekly
@@ -50,6 +52,7 @@ func CalculateWithholding(
 		FilingStatus:       schedule.FilingStatus,
 		Earners:            earners,
 		SupplementalIncome: supplementalIncome,
+		PreTaxDeductions:   preTaxDeductions,
 	}
 
 	// Find higher earner and calculate totals.
@@ -78,8 +81,12 @@ func CalculateWithholding(
 	// Estimate annual income by projecting from current data.
 	result.EstimatedAnnualIncome = estimateAnnualIncome(earners, totalPayPeriodsPerYear) + supplementalIncome
 
-	// Calculate total tax liability on the estimated annual income.
-	result.TotalTaxLiability = schedule.CalculateTax(result.EstimatedAnnualIncome)
+	// Calculate total tax liability on estimated income minus pre-tax deductions.
+	taxableIncome := result.EstimatedAnnualIncome - preTaxDeductions
+	if taxableIncome < 0 {
+		taxableIncome = 0
+	}
+	result.TotalTaxLiability = schedule.CalculateTax(taxableIncome)
 
 	// Remaining tax owed.
 	result.RemainingTaxOwed = result.TotalTaxLiability - result.TotalWithheldToDate
