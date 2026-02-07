@@ -65,56 +65,6 @@
     {{end}}
 </div>
 
-<div class="card">
-    <h2>Earner Details</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Pay Periods</th>
-                <th>YTD Gross</th>
-                <th>YTD Fed Withheld</th>
-                <th>Avg/Period</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Result.Earners}}
-            <tr>
-                <td>{{.Name}}</td>
-                <td>{{.PayPeriodsUploaded}}</td>
-                <td>{{formatMoney .LatestYTDGross}}</td>
-                <td>{{formatMoney .LatestYTDFedWithheld}}</td>
-                <td>{{formatMoney .AvgGrossPerPeriod}}</td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
-
-<div class="card">
-    <h2>Uploaded Paystubs</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Person</th>
-                <th>Period</th>
-                <th>Gross Pay</th>
-                <th>Fed Tax</th>
-            </tr>
-        </thead>
-        <tbody>
-            {{range .Paystubs}}
-            <tr>
-                <td>{{.PersonName}}</td>
-                <td>{{.PayPeriodStart.Format "01/02"}} - {{.PayPeriodEnd.Format "01/02/2006"}}</td>
-                <td>{{formatMoney .GrossPay}}</td>
-                <td>{{formatMoney .FederalTaxWithheld}}</td>
-            </tr>
-            {{end}}
-        </tbody>
-    </table>
-</div>
-
 {{if .EOYProjection}}
 {{if .EOYProjection.Earners}}
 <div class="card">
@@ -162,6 +112,32 @@
 {{end}}
 {{end}}
 
+<div class="card">
+    <h2>Earner Details</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Pay Periods</th>
+                <th>YTD Gross</th>
+                <th>YTD Fed Withheld</th>
+                <th>Avg/Period</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Result.Earners}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.PayPeriodsUploaded}}</td>
+                <td>{{formatMoney .LatestYTDGross}}</td>
+                <td>{{formatMoney .LatestYTDFedWithheld}}</td>
+                <td>{{formatMoney .AvgGrossPerPeriod}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+
 {{if .DeductionWarnings}}
 <div class="card">
     <h2>Contribution Limit Warnings</h2>
@@ -202,6 +178,30 @@
     {{end}}
 </div>
 {{end}}
+
+<div class="card">
+    <h2>Uploaded Paystubs</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Person</th>
+                <th>Period</th>
+                <th>Gross Pay</th>
+                <th>Fed Tax</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Paystubs}}
+            <tr>
+                <td>{{.PersonName}}</td>
+                <td>{{.PayPeriodStart.Format "01/02"}} - {{.PayPeriodEnd.Format "01/02/2006"}}</td>
+                <td>{{formatMoney .GrossPay}}</td>
+                <td>{{formatMoney .FederalTaxWithheld}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
 
 {{else}}
 <div class="card">
