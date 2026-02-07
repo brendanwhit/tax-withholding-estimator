@@ -144,7 +144,7 @@ func InferPayFrequency(stubs []db.Paystub) PayFrequency {
 	switch {
 	case median <= 9:
 		return FrequencyWeekly
-	case median <= 17:
+	case median <= 14:
 		return FrequencyBiweekly
 	case median <= 20:
 		return FrequencySemiMonthly

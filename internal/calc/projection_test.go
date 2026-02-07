@@ -32,6 +32,19 @@ func TestInferPayFrequencyBiweekly(t *testing.T) {
 	}
 }
 
+func TestInferPayFrequencySemiMonthly(t *testing.T) {
+	stubs := []db.Paystub{
+		makeStubDates("A", 2025, 1, 1, 1, 15, 4000, 600),
+		makeStubDates("A", 2025, 1, 16, 1, 31, 4000, 600),
+		makeStubDates("A", 2025, 2, 1, 2, 15, 4000, 600),
+		makeStubDates("A", 2025, 2, 16, 2, 28, 4000, 600),
+	}
+	freq := calc.InferPayFrequency(stubs)
+	if freq != calc.FrequencySemiMonthly {
+		t.Errorf("expected Semi-monthly, got %s", freq)
+	}
+}
+
 func TestInferPayFrequencyMonthly(t *testing.T) {
 	stubs := []db.Paystub{
 		makeStubDates("A", 2025, 1, 1, 1, 31, 8000, 1200),
