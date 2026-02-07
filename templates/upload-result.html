@@ -1,14 +1,21 @@
 {{define "upload-result.html"}}
+{{if .Error}}
+<div class="alert alert-error">{{.Error}}</div>
+{{else if .Results}}
+{{range .Results}}
 {{if .Success}}
 <div class="alert alert-success">
-    Paystub uploaded successfully for <strong>{{.Data.FirstName}}</strong>
+    <strong>{{.Filename}}</strong>: Uploaded successfully for <strong>{{.Data.FirstName}}</strong>
     ({{.Data.PayPeriodStart.Format "01/02/2006"}} - {{.Data.PayPeriodEnd.Format "01/02/2006"}}).
     <br>
     Gross Pay: {{formatMoney .Data.GrossPay}} | Federal Tax: {{formatMoney .Data.FederalTaxWithheld}}
-    <br>
-    <a href="/" style="margin-top:8px; display:inline-block;">View Dashboard</a>
 </div>
-{{else if .Error}}
-<div class="alert alert-error">{{.Error}}</div>
+{{else}}
+<div class="alert alert-error">
+    <strong>{{.Filename}}</strong>: {{.Error}}
+</div>
+{{end}}
+{{end}}
+<a href="/" style="margin-top:8px; display:inline-block;">View Dashboard</a>
 {{end}}
 {{end}}

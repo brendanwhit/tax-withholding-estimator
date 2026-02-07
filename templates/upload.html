@@ -1,27 +1,42 @@
 {{define "upload.html"}}
 {{template "header" .}}
 <div class="card">
-    <h1>Upload Paystub</h1>
+    <h1>Upload Paystubs</h1>
 
     {{if .Error}}
     <div class="alert alert-error">{{.Error}}</div>
     {{end}}
 
+    {{if .Results}}
+    {{range .Results}}
     {{if .Success}}
     <div class="alert alert-success">
-        Paystub uploaded successfully for <strong>{{.Data.FirstName}}</strong>
+        <strong>{{.Filename}}</strong>: Uploaded successfully for <strong>{{.Data.FirstName}}</strong>
         ({{.Data.PayPeriodStart.Format "01/02/2006"}} - {{.Data.PayPeriodEnd.Format "01/02/2006"}}).
     </div>
+    {{else}}
+    <div class="alert alert-error">
+        <strong>{{.Filename}}</strong>: {{.Error}}
+    </div>
+    {{end}}
+    {{end}}
     {{end}}
 
-    <form hx-post="/upload"
-          hx-target="#upload-result"
-          hx-swap="innerHTML"
-          hx-encoding="multipart/form-data">
-        <label for="paystub">Select PDF paystub file</label>
-        <input type="file" name="paystub" id="paystub" accept=".pdf">
-        <button type="submit">Upload &amp; Parse</button>
-    </form>
+    <div id="drop-zone" class="drop-zone">
+        <div class="drop-zone-text">
+            <p>Drag & drop PDF files here</p>
+            <p style="font-size: 0.9em; color: #718096;">or</p>
+        </div>
+        <label for="paystub" class="file-label">
+            <span class="btn btn-secondary">Select Files</span>
+            <input type="file" id="paystub" accept=".pdf" multiple style="display: none;">
+        </label>
+        <div id="file-list" class="file-list"></div>
+    </div>
+    <div class="button-row">
+        <button type="button" id="submit-btn" disabled>Upload & Parse</button>
+        <button type="button" id="clear-btn" class="btn-secondary" style="display: none;">Clear</button>
+    </div>
 
     <div id="upload-result"></div>
 </div>
@@ -29,11 +44,301 @@
 <div class="card">
     <h2>How It Works</h2>
     <ol style="padding-left:20px; color:#4a5568;">
-        <li style="margin-bottom:8px;">Upload a PDF of your paystub</li>
+        <li style="margin-bottom:8px;">Upload one or more PDF paystubs (drag & drop or click to select)</li>
         <li style="margin-bottom:8px;">The parser extracts gross pay, federal tax withheld, and pay period dates</li>
-        <li style="margin-bottom:8px;">All sensitive data (SSN, address, bank info) is stripped — only your first name is stored</li>
+        <li style="margin-bottom:8px;">All sensitive data (SSN, address, bank info) is stripped - only your first name is stored</li>
         <li style="margin-bottom:8px;">The data is saved and used to estimate your annual withholding</li>
     </ol>
 </div>
+
+<style>
+    .drop-zone {
+        border: 2px dashed #cbd5e0;
+        border-radius: 8px;
+        padding: 32px;
+        text-align: center;
+        transition: all 0.2s ease;
+        background: #f7fafc;
+        margin-bottom: 16px;
+    }
+    .drop-zone.drag-over {
+        border-color: #2b6cb0;
+        background: #ebf8ff;
+    }
+    .drop-zone.uploading {
+        opacity: 0.7;
+        pointer-events: none;
+    }
+    .drop-zone-text p {
+        margin: 0 0 8px 0;
+        color: #4a5568;
+    }
+    .file-label {
+        cursor: pointer;
+        display: inline-block;
+        margin-top: 8px;
+    }
+    .file-list {
+        margin-top: 16px;
+        text-align: left;
+    }
+    .file-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+        margin-bottom: 4px;
+    }
+    .file-item .file-icon {
+        font-size: 1.2em;
+        width: 24px;
+        text-align: center;
+    }
+    .file-item .file-info {
+        flex: 1;
+    }
+    .file-item .file-name {
+        color: #2d3748;
+        font-size: 0.9em;
+    }
+    .file-item .file-size {
+        color: #718096;
+        font-size: 0.8em;
+    }
+    .file-item .remove-btn {
+        background: none;
+        border: none;
+        color: #e53e3e;
+        cursor: pointer;
+        padding: 4px 8px;
+        font-size: 1.2em;
+        line-height: 1;
+    }
+    .file-item .remove-btn:hover {
+        color: #c53030;
+    }
+    .file-item.success {
+        border-color: #9ae6b4;
+        background: #f0fff4;
+    }
+    .file-item.success .file-icon {
+        color: #38a169;
+    }
+    .file-item.error {
+        border-color: #feb2b2;
+        background: #fff5f5;
+    }
+    .file-item.error .file-icon {
+        color: #e53e3e;
+    }
+    .file-item .error-msg {
+        color: #c53030;
+        font-size: 0.8em;
+    }
+    #submit-btn:disabled {
+        background: #a0aec0;
+        cursor: not-allowed;
+    }
+    #submit-btn.uploading {
+        background: #4a5568;
+    }
+    .button-row {
+        display: flex;
+        gap: 12px;
+    }
+</style>
+
+<script>
+(function() {
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('paystub');
+    const fileList = document.getElementById('file-list');
+    const submitBtn = document.getElementById('submit-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const uploadResult = document.getElementById('upload-result');
+
+    let selectedFiles = [];
+    let hasResults = false;
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.dataset.index = i;
+            item.innerHTML = `
+                <span class="file-icon">&#128196;</span>
+                <div class="file-info">
+                    <div class="file-name">${file.name}</div>
+                    <div class="file-size">${formatFileSize(file.size)}</div>
+                </div>
+                <button type="button" class="remove-btn" data-index="${i}">&times;</button>
+            `;
+            fileList.appendChild(item);
+        }
+
+        submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function addFiles(files) {
+        for (const file of files) {
+            if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+                // Check for duplicates
+                const isDuplicate = selectedFiles.some(f => f.name === file.name);
+                if (!isDuplicate) {
+                    selectedFiles.push(file);
+                }
+            }
+        }
+        updateFileList();
+    }
+
+    function clearFiles() {
+        selectedFiles = [];
+        hasResults = false;
+        updateFileList();
+        uploadResult.innerHTML = '';
+        clearBtn.style.display = 'none';
+    }
+
+    function markFileResult(index, success, errorMsg) {
+        const item = fileList.querySelector(`.file-item[data-index="${index}"]`);
+        if (!item) return;
+
+        item.classList.add(success ? 'success' : 'error');
+        const icon = item.querySelector('.file-icon');
+        const removeBtn = item.querySelector('.remove-btn');
+
+        if (success) {
+            icon.innerHTML = '&#10004;'; // checkmark
+        } else {
+            icon.innerHTML = '&#10006;'; // X mark
+            if (errorMsg) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-msg';
+                errorDiv.textContent = errorMsg;
+                item.querySelector('.file-info').appendChild(errorDiv);
+            }
+        }
+        if (removeBtn) removeBtn.remove();
+    }
+
+    // File input change
+    fileInput.addEventListener('change', function(e) {
+        addFiles(e.target.files);
+        // Reset input so same file can be selected again
+        fileInput.value = '';
+    });
+
+    // Remove file button
+    fileList.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-btn')) {
+            const index = parseInt(e.target.dataset.index);
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+    });
+
+    // Drag and drop
+    dropZone.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+    });
+
+    dropZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        addFiles(e.dataTransfer.files);
+    });
+
+    // Clear button click
+    clearBtn.addEventListener('click', clearFiles);
+
+    // Upload button click - use fetch API
+    submitBtn.addEventListener('click', async function() {
+        if (selectedFiles.length === 0) return;
+
+        // Show uploading state
+        dropZone.classList.add('uploading');
+        submitBtn.disabled = true;
+        submitBtn.classList.add('uploading');
+        submitBtn.textContent = 'Uploading...';
+        uploadResult.innerHTML = '';
+
+        // Build FormData
+        const formData = new FormData();
+        for (const file of selectedFiles) {
+            formData.append('paystub', file);
+        }
+
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                headers: {
+                    'HX-Request': 'true'
+                },
+                body: formData
+            });
+
+            const html = await response.text();
+            uploadResult.innerHTML = html;
+
+            // Parse response to mark individual files
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const alerts = doc.querySelectorAll('.alert');
+
+            let allSuccess = true;
+            alerts.forEach(function(alert) {
+                const strong = alert.querySelector('strong');
+                if (strong) {
+                    const filename = strong.textContent.replace(':', '').trim();
+                    const isSuccess = alert.classList.contains('alert-success');
+                    if (!isSuccess) allSuccess = false;
+                    // Find the file index by name
+                    const fileIndex = selectedFiles.findIndex(f => f.name === filename);
+                    if (fileIndex >= 0) {
+                        const errorMsg = isSuccess ? null : alert.textContent.split(':').slice(1).join(':').trim();
+                        markFileResult(fileIndex, isSuccess, errorMsg);
+                    }
+                }
+            });
+
+            // Only auto-clear if all files succeeded
+            if (allSuccess && alerts.length > 0) {
+                setTimeout(clearFiles, 3000);
+            } else {
+                // Show clear button for errors
+                hasResults = true;
+                clearBtn.style.display = 'inline-block';
+            }
+
+        } catch (err) {
+            uploadResult.innerHTML = '<div class="alert alert-error">Upload failed: ' + err.message + '</div>';
+            submitBtn.disabled = selectedFiles.length === 0;
+        } finally {
+            dropZone.classList.remove('uploading');
+            submitBtn.classList.remove('uploading');
+            submitBtn.textContent = 'Upload & Parse';
+        }
+    });
+})();
+</script>
 {{template "footer" .}}
 {{end}}

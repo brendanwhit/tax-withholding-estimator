@@ -100,14 +100,22 @@ var (
 	}
 
 	// Patterns for extracting pay period dates.
-	payPeriodPattern = regexp.MustCompile(`(?i)(?:pay\s*period|period)[\s:]*(\S+)\s*(?:-|to|through|thru)\s*(\S+)`)
+	// Handles formats like "PAY PERIOD: 01/01/2026 - 01/15/2026" or "Pay Period 01/01/2026 to 01/15/2026"
+	payPeriodPattern = regexp.MustCompile(`(?i)pay\s*period[\s:]*(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:-|to|through|thru)\s*(\d{1,2}/\d{1,2}/\d{2,4})`)
 
-	// Patterns for extracting amounts.
-	grossPayPattern   = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|total\s*gross)[\s:$]*([0-9,]+\.?\d*)`)
-	fedTaxPattern     = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?tax|fed\s*(?:income\s*)?tax|federal\s*withholding|fed\s*w/?h|fit)[\s:$]*([0-9,]+\.?\d*)`)
-	ytdGrossPattern   = regexp.MustCompile(`(?i)(?:ytd|year[\s-]*to[\s-]*date)[\s]*(?:gross|total\s*gross)[\s:$]*([0-9,]+\.?\d*)`)
-	ytdFedTaxPattern  = regexp.MustCompile(`(?i)(?:ytd|year[\s-]*to[\s-]*date)[\s]*(?:federal|fed)[\s]*(?:income\s*)?(?:tax|w/?h|withholding)[\s:$]*([0-9,]+\.?\d*)`)
-	namePattern       = regexp.MustCompile(`(?i)(?:employee|name|pay\s*to)[\s:]*([A-Za-z]+)`)
+	// Patterns for extracting amounts - handles $X,XXX.XX format
+	grossPayPattern = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|total\s*gross)[\s:]*\$?([0-9,]+\.\d{2})`)
+	fedTaxPattern   = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?tax|fed\s*(?:income\s*)?tax|federal\s*withholding|fed\s*w/?h|fit)[\s:]*\$?([0-9,]+\.\d{2})`)
+
+	// YTD patterns - support both simple "YTD Gross: $X" and table "Gross Pay $current $ytd" formats
+	ytdGrossSimplePattern = regexp.MustCompile(`(?i)ytd\s*gross[\s:]*\$?([0-9,]+\.\d{2})`)
+	ytdFedTaxSimplePattern = regexp.MustCompile(`(?i)ytd\s*(?:federal\s*)?tax[\s:]*\$?([0-9,]+\.\d{2})`)
+	// Table format: "Gross Pay $current $ytd" on same line
+	ytdGrossTablePattern  = regexp.MustCompile(`(?i)gross\s*pay[^\n]*\$?([0-9,]+\.\d{2})[^\n]*\$?([0-9,]+\.\d{2})`)
+	ytdFedTaxTablePattern = regexp.MustCompile(`(?i)federal\s*(?:income\s*)?tax[^\n]*\$?([0-9,]+\.\d{2})[^\n]*\$?([0-9,]+\.\d{2})`)
+
+	// Name pattern - handles "PAID TO:", "Pay To:", "Employee:", "Name:"
+	namePattern = regexp.MustCompile(`(?i)(?:employee|name|paid?\s*to)[\s:]*([A-Za-z]+)`)
 )
 
 func extractFields(text string) (*PaystubData, error) {
@@ -156,14 +164,25 @@ func extractFields(text string) (*PaystubData, error) {
 	}
 
 	// Extract YTD totals (optional — not a hard failure).
-	if m := ytdGrossPattern.FindStringSubmatch(text); len(m) > 1 {
+	// Try simple "YTD Gross: $X" format first, then table format.
+	if m := ytdGrossSimplePattern.FindStringSubmatch(text); len(m) > 1 {
 		v, err := parseAmount(m[1])
 		if err == nil {
 			data.YTDGrossPay = v
 		}
+	} else if m := ytdGrossTablePattern.FindStringSubmatch(text); len(m) > 2 {
+		v, err := parseAmount(m[2]) // YTD is second column in table
+		if err == nil {
+			data.YTDGrossPay = v
+		}
 	}
-	if m := ytdFedTaxPattern.FindStringSubmatch(text); len(m) > 1 {
+	if m := ytdFedTaxSimplePattern.FindStringSubmatch(text); len(m) > 1 {
 		v, err := parseAmount(m[1])
+		if err == nil {
+			data.YTDFederalTaxWithheld = v
+		}
+	} else if m := ytdFedTaxTablePattern.FindStringSubmatch(text); len(m) > 2 {
+		v, err := parseAmount(m[2]) // YTD is second column in table
 		if err == nil {
 			data.YTDFederalTaxWithheld = v
 		}

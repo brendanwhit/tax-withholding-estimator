@@ -5,7 +5,8 @@ import (
 	"html/template"
 	"io"
 	"log"
-"net/http"
+	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,15 @@ import (
 	pdfparse "github.com/brendanwhit/tax-withholding-estimator/internal/pdf"
 	"github.com/brendanwhit/tax-withholding-estimator/internal/tax"
 )
+
+// uploadResult holds the result of processing a single uploaded file.
+type uploadResult struct {
+	Filename  string
+	Success   bool
+	Error     string
+	Data      *pdfparse.PaystubData
+	Year      int
+}
 
 // Server holds dependencies for HTTP handlers.
 type Server struct {
@@ -155,27 +165,69 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to parse form: "+err.Error())
+		renderUploadError(w, r, s.Tmpl, "Failed to parse form: "+err.Error())
 		return
 	}
 
-	file, header, err := r.FormFile("paystub")
-	if err != nil {
-		renderUploadError(w, s.Tmpl, "No file uploaded")
+	files := r.MultipartForm.File["paystub"]
+	if len(files) == 0 {
+		renderUploadError(w, r, s.Tmpl, "No file uploaded")
 		return
+	}
+
+	var results []uploadResult
+	for _, header := range files {
+		result := s.processUploadedFile(header)
+		results = append(results, result)
+	}
+
+	// Check if all files failed
+	allFailed := true
+	for _, r := range results {
+		if r.Success {
+			allFailed = false
+			break
+		}
+	}
+
+	tmplData := map[string]interface{}{
+		"Results": results,
+	}
+
+	if allFailed {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	if isHTMX(r) {
+		if err := s.Tmpl.ExecuteTemplate(w, "upload-result.html", tmplData); err != nil {
+			log.Printf("template error: %v", err)
+		}
+		return
+	}
+	if err := s.Tmpl.ExecuteTemplate(w, "upload.html", tmplData); err != nil {
+		log.Printf("template error: %v", err)
+	}
+}
+
+func (s *Server) processUploadedFile(header *multipart.FileHeader) uploadResult {
+	result := uploadResult{Filename: header.Filename}
+
+	if !strings.HasSuffix(strings.ToLower(header.Filename), ".pdf") {
+		result.Error = "Only PDF files are accepted"
+		return result
+	}
+
+	file, err := header.Open()
+	if err != nil {
+		result.Error = "Failed to open file"
+		return result
 	}
 	defer func() { _ = file.Close() }()
 
-	if !strings.HasSuffix(strings.ToLower(header.Filename), ".pdf") {
-		renderUploadError(w, s.Tmpl, "Only PDF files are accepted. Please upload a PDF paystub.")
-		return
-	}
-
-	tmpDir := os.TempDir()
-	tmpFile, err := os.CreateTemp(tmpDir, "paystub-*.pdf")
+	tmpFile, err := os.CreateTemp("", "paystub-*.pdf")
 	if err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to create temp file")
-		return
+		result.Error = "Failed to create temp file"
+		return result
 	}
 	defer func() {
 		_ = tmpFile.Close()
@@ -184,19 +236,19 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	size, err := io.Copy(tmpFile, file)
 	if err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to save uploaded file")
-		return
+		result.Error = "Failed to save uploaded file"
+		return result
 	}
 
 	if _, err := tmpFile.Seek(0, io.SeekStart); err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to read uploaded file")
-		return
+		result.Error = "Failed to read uploaded file"
+		return result
 	}
 
 	data, err := pdfparse.ParsePaystub(tmpFile, size)
 	if err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to parse paystub: "+err.Error())
-		return
+		result.Error = "Failed to parse paystub: " + err.Error()
+		return result
 	}
 
 	year := data.PayPeriodStart.Year()
@@ -216,25 +268,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.Store.SavePaystub(paystub); err != nil {
-		renderUploadError(w, s.Tmpl, "Failed to save paystub: "+err.Error())
-		return
+		result.Error = "Failed to save paystub: " + err.Error()
+		return result
 	}
 
-	tmplData := map[string]interface{}{
-		"Success": true,
-		"Data":    data,
-		"Year":    year,
-	}
-
-	if isHTMX(r) {
-		if err := s.Tmpl.ExecuteTemplate(w, "upload-result.html", tmplData); err != nil {
-			log.Printf("template error: %v", err)
-		}
-		return
-	}
-	if err := s.Tmpl.ExecuteTemplate(w, "upload.html", tmplData); err != nil {
-		log.Printf("template error: %v", err)
-	}
+	result.Success = true
+	result.Data = data
+	result.Year = year
+	return result
 }
 
 func (s *Server) handleFilingStatus(w http.ResponseWriter, r *http.Request) {
@@ -300,12 +341,16 @@ func (s *Server) handleBrackets(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func renderUploadError(w http.ResponseWriter, tmpl *template.Template, msg string) {
+func renderUploadError(w http.ResponseWriter, r *http.Request, tmpl *template.Template, msg string) {
 	data := map[string]interface{}{
 		"Error": msg,
 	}
 	w.WriteHeader(http.StatusBadRequest)
-	if err := tmpl.ExecuteTemplate(w, "upload.html", data); err != nil {
+	templateName := "upload.html"
+	if isHTMX(r) {
+		templateName = "upload-result.html"
+	}
+	if err := tmpl.ExecuteTemplate(w, templateName, data); err != nil {
 		log.Printf("template error: %v", err)
 	}
 }
