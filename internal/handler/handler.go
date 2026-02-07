@@ -493,14 +493,15 @@ func buildEarnerSummaries(paystubs []db.Paystub) []calc.EarnerSummary {
 			e.TotalFederalWithheld += s.FederalTaxWithheld
 		}
 
-		// Use latest stub for YTD values.
+		// Use latest stub for YTD values, but sanity-check: YTD must be >= sum
+		// of uploaded gross (otherwise the parser grabbed a wrong number).
 		latest := stubs[len(stubs)-1]
-		if latest.YTDGrossPay != nil {
+		if latest.YTDGrossPay != nil && *latest.YTDGrossPay >= e.TotalGrossPay {
 			e.LatestYTDGross = *latest.YTDGrossPay
 		} else {
 			e.LatestYTDGross = e.TotalGrossPay
 		}
-		if latest.YTDFederalTaxWithheld != nil {
+		if latest.YTDFederalTaxWithheld != nil && *latest.YTDFederalTaxWithheld >= e.TotalFederalWithheld {
 			e.LatestYTDFedWithheld = *latest.YTDFederalTaxWithheld
 		} else {
 			e.LatestYTDFedWithheld = e.TotalFederalWithheld
