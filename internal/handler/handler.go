@@ -65,6 +65,24 @@ func NewServer(store *db.Store, tmplDir string) (*Server, error) {
 				return s
 			}
 		},
+		"formatDeductionType": func(s string) string {
+			switch s {
+			case "401k":
+				return "401(k)"
+			case "403b":
+				return "403(b)"
+			case "hsa":
+				return "HSA"
+			case "fsa_health":
+				return "Healthcare FSA"
+			case "fsa_dependent":
+				return "Dependent Care FSA"
+			case "commuter":
+				return "Commuter"
+			default:
+				return s
+			}
+		},
 	}
 
 	pattern := filepath.Join(tmplDir, "*.html")
@@ -147,15 +165,65 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	earners := buildEarnerSummaries(paystubs)
 
+	// Load deduction data for the dashboard.
+	deductionSummaries, err := s.Store.GetDeductionSummaryByYear(year)
+	if err != nil {
+		log.Printf("failed to get deduction summaries: %v", err)
+	}
+	limits, err := s.Store.GetOrCacheContributionLimits(year)
+	if err != nil {
+		log.Printf("failed to get contribution limits: %v", err)
+	}
+
+	// Build limit lookup and warning info.
+	limitMap := make(map[string]float64)
+	for _, l := range limits {
+		limitMap[l.DeductionType] = l.AnnualLimit
+	}
+
+	type deductionWarning struct {
+		PersonName    string
+		DeductionType string
+		YTDTotal      float64
+		Limit         float64
+		Pct           float64
+	}
+	var warnings []deductionWarning
+	for _, ds := range deductionSummaries {
+		limit, ok := limitMap[ds.DeductionType]
+		if !ok || limit == 0 {
+			continue
+		}
+		pct := ds.TotalAmount / limit
+		if pct >= 0.9 {
+			warnings = append(warnings, deductionWarning{
+				PersonName:    ds.PersonName,
+				DeductionType: ds.DeductionType,
+				YTDTotal:      ds.TotalAmount,
+				Limit:         limit,
+				Pct:           pct * 100,
+			})
+		}
+	}
+
+	// Calculate total pre-tax deductions for tax calculation adjustment.
+	totalPreTaxDeductions, err := s.Store.GetTotalPreTaxDeductionsByYear(year)
+	if err != nil {
+		log.Printf("failed to get total deductions: %v", err)
+	}
+
 	result := calc.CalculateWithholding(schedule, earners, 0, 26, time.Now())
 
 	data := map[string]interface{}{
-		"Year":          year,
-		"FilingStatus":  filingStatus,
-		"Result":        result,
-		"Paystubs":      paystubs,
-		"HasPaystubs":   len(paystubs) > 0,
-		"AllStatuses":   tax.AllFilingStatuses(),
+		"Year":                 year,
+		"FilingStatus":         filingStatus,
+		"Result":               result,
+		"Paystubs":             paystubs,
+		"HasPaystubs":          len(paystubs) > 0,
+		"AllStatuses":          tax.AllFilingStatuses(),
+		"DeductionSummaries":   deductionSummaries,
+		"DeductionWarnings":    warnings,
+		"TotalPreTaxDeductions": totalPreTaxDeductions,
 	}
 
 	if err := s.Tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
@@ -279,9 +347,25 @@ func (s *Server) processUploadedFile(header *multipart.FileHeader) uploadResult 
 		paystub.YTDFederalTaxWithheld = &data.YTDFederalTaxWithheld
 	}
 
-	if _, err := s.Store.SavePaystub(paystub); err != nil {
+	paystubID, err := s.Store.SavePaystub(paystub)
+	if err != nil {
 		result.Error = "Failed to save paystub: " + err.Error()
 		return result
+	}
+
+	// Save pre-tax deductions if extracted.
+	for _, d := range data.Deductions {
+		ded := &db.PreTaxDeduction{
+			PaystubID:     paystubID,
+			DeductionType: d.Type,
+			Amount:        d.Amount,
+		}
+		if d.YTDAmount > 0 {
+			ded.YTDAmount = &d.YTDAmount
+		}
+		if saveErr := s.Store.SavePreTaxDeduction(ded); saveErr != nil {
+			log.Printf("failed to save deduction %s for paystub %d: %v", d.Type, paystubID, saveErr)
+		}
 	}
 
 	result.Success = true

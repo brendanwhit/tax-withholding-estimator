@@ -115,6 +115,47 @@
     </table>
 </div>
 
+{{if .DeductionWarnings}}
+<div class="card">
+    <h2>Contribution Limit Warnings</h2>
+    {{range .DeductionWarnings}}
+    <div class="alert alert-error" style="display:flex; justify-content:space-between; align-items:center;">
+        <span><strong>{{.PersonName}}</strong> &mdash; {{formatDeductionType .DeductionType}} at {{formatMoney .YTDTotal}} of {{formatMoney .Limit}} limit</span>
+        <span style="font-weight:600;">{{printf "%.0f" .Pct}}%</span>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{if .DeductionSummaries}}
+<div class="card">
+    <h2>Pre-Tax Deductions (YTD)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Person</th>
+                <th>Type</th>
+                <th>YTD Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .DeductionSummaries}}
+            <tr>
+                <td>{{.PersonName}}</td>
+                <td>{{formatDeductionType .DeductionType}}</td>
+                <td>{{formatMoney .TotalAmount}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{if gt .TotalPreTaxDeductions 0.0}}
+    <p style="margin-top:12px; color:var(--text-muted); font-size:0.9em;">
+        Total pre-tax deductions reduce taxable income by {{formatMoney .TotalPreTaxDeductions}}.
+    </p>
+    {{end}}
+</div>
+{{end}}
+
 {{else}}
 <div class="card">
     <div class="empty-state">
