@@ -1,4 +1,4 @@
-.PHONY: build test lint clean run
+.PHONY: build test lint clean run dev check
 
 build:
 	go build ./...
@@ -14,5 +14,8 @@ clean:
 
 run:
 	go run ./cmd/server
+
+dev:
+	go run -tags dev ./cmd/server
 
 check: lint test build

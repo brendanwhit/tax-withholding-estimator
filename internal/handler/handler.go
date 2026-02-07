@@ -96,12 +96,24 @@ func formatWithCommas(f float64) string {
 	return string(result) + "." + decPart
 }
 
+// devRoute is used by build-tag-gated files to register additional routes.
+type devRoute struct {
+	pattern string
+	handler func(s *Server) http.HandlerFunc
+}
+
+var devRoutes []devRoute
+
 // RegisterRoutes sets up all HTTP routes.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", s.handleDashboard)
 	mux.HandleFunc("/upload", s.handleUpload)
 	mux.HandleFunc("/filing-status", s.handleFilingStatus)
 	mux.HandleFunc("/brackets", s.handleBrackets)
+
+	for _, r := range devRoutes {
+		mux.HandleFunc(r.pattern, r.handler(s))
+	}
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
