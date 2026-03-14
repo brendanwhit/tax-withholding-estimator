@@ -101,42 +101,78 @@ var (
 		"01/02/2006",
 		"1/2/2006",
 		"01-02-2006",
+		"1-2-2006",
 		"2006-01-02",
 		"Jan 02, 2006",
 		"January 2, 2006",
 		"01/02/06",
+		"1/2/06",
 	}
 
-	// Patterns for extracting pay period dates.
-	// Handles formats like "PAY PERIOD: 01/01/2026 - 01/15/2026" or "Pay Period 01/01/2026 to 01/15/2026"
-	payPeriodPattern = regexp.MustCompile(`(?i)pay\s*period[\s:]*(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:-|to|through|thru)\s*(\d{1,2}/\d{1,2}/\d{2,4})`)
+	// Pay period range pattern: "Pay Period: 01/01/2025 - 01/15/2025"
+	// Also handles "Period: ..." without "Pay" prefix and dash-separated dates.
+	payPeriodPattern = regexp.MustCompile(`(?i)(?:pay\s*)?period[\s:]*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\s*(?:-|to|through|thru)\s*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})`)
 
-	// Patterns for extracting amounts - handles $X,XXX.XX format
-	grossPayPattern = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|total\s*gross)[\s:]*\$?([0-9,]+\.\d{2})`)
-	fedTaxPattern   = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?tax|fed\s*(?:income\s*)?tax|federal\s*withholding|fed\s*w/?h|fit)[\s:]*\$?([0-9,]+\.\d{2})`)
+	// Separate begin/end patterns for paystubs with split labels.
+	periodBeginPattern = regexp.MustCompile(`(?i)period\s*begin[\s:]*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})`)
+	periodEndPattern   = regexp.MustCompile(`(?i)period\s*end(?:ing)?[\s:]*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})`)
 
-	// YTD patterns - support both simple "YTD Gross: $X" and table "Gross Pay $current $ytd" formats
-	ytdGrossSimplePattern = regexp.MustCompile(`(?i)ytd\s*gross[\s:]*\$?([0-9,]+\.\d{2})`)
-	ytdFedTaxSimplePattern = regexp.MustCompile(`(?i)ytd\s*(?:federal\s*)?tax[\s:]*\$?([0-9,]+\.\d{2})`)
-	// Table format: "Gross Pay $current $ytd" on same line
-	ytdGrossTablePattern  = regexp.MustCompile(`(?i)gross\s*pay[^\n]*\$?([0-9,]+\.\d{2})[^\n]*\$?([0-9,]+\.\d{2})`)
-	ytdFedTaxTablePattern = regexp.MustCompile(`(?i)federal\s*(?:income\s*)?tax[^\n]*\$?([0-9,]+\.\d{2})[^\n]*\$?([0-9,]+\.\d{2})`)
+	// Pay Date / Check Date fallback (last resort, infer period).
+	payDatePattern = regexp.MustCompile(`(?i)(?:pay\s*date|check\s*date)[\s:]*(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})`)
 
-	// Name pattern - handles "PAID TO:", "Pay To:", "Employee:", "Name:"
-	namePattern = regexp.MustCompile(`(?i)(?:employee|name|paid?\s*to)[\s:]*([A-Za-z]+)`)
+	// Label detectors for columnar layouts where labels and values are separated.
+	periodBeginLabelPattern = regexp.MustCompile(`(?i)period\s*begin`)
+	periodEndLabelPattern   = regexp.MustCompile(`(?i)period\s*end`)
+
+	// Generic date finder for columnar layout extraction.
+	anyDatePattern = regexp.MustCompile(`\b(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})\b`)
+
+	// Gross pay patterns - handles various payroll provider labels.
+	grossPayPattern = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|gross\s*wages|total\s*(?:gross|earnings)|earnings\s*total)[\s:]*\$?([0-9,]+\.\d{2})`)
+
+	// Federal tax patterns - handles FIT, FWT, FITW, Federal WH, etc.
+	fedTaxPattern = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*w/?h|fitw?|fwt)[\s:]*\$?([0-9,]+\.\d{2})`)
+
+	// YTD simple patterns: "YTD Gross: $X" or "Year-to-Date Gross: $X"
+	ytdGrossSimplePattern  = regexp.MustCompile(`(?i)(?:ytd|year[\s-]*to[\s-]*date)\s*(?:gross|total\s*earnings|earnings)[\s:]*\$?([0-9,]+\.\d{2})`)
+	ytdGrossReversePattern = regexp.MustCompile(`(?i)(?:gross|total\s*earnings)\s*(?:ytd|year[\s-]*to[\s-]*date)[\s:]*\$?([0-9,]+\.\d{2})`)
+	ytdFedTaxSimplePattern = regexp.MustCompile(`(?i)(?:ytd|year[\s-]*to[\s-]*date)\s*(?:federal\s*)?(?:tax|withholding)[\s:]*\$?([0-9,]+\.\d{2})`)
+
+	// YTD table patterns: label + current + ytd on same line.
+	// Use non-greedy [^\n]*? to avoid capturing partial dollar amounts.
+	ytdGrossTablePattern  = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|gross\s*wages|total\s*(?:gross|earnings)|earnings\s*total)[^\n]*?\$?([0-9,]+\.\d{2})[^\n]*?\$?([0-9,]+\.\d{2})`)
+	ytdFedTaxTablePattern = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*w/?h|fitw?|fwt)[^\n]*?\$?([0-9,]+\.\d{2})[^\n]*?\$?([0-9,]+\.\d{2})`)
+
+	// YTD multiline table patterns: label then current then ytd on separate lines.
+	ytdGrossMultilinePattern  = regexp.MustCompile(`(?i)(?:gross\s*pay|gross\s*earnings|gross\s*wages|total\s*(?:gross|earnings)|earnings\s*total)\s+\$?([0-9,]+\.\d{2})\s+\$?([0-9,]+\.\d{2})`)
+	ytdFedTaxMultilinePattern = regexp.MustCompile(`(?i)(?:federal\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*(?:income\s*)?(?:tax|withholding)|fed(?:eral)?\s*w/?h|fitw?|fwt)\s+\$?([0-9,]+\.\d{2})\s+\$?([0-9,]+\.\d{2})`)
+
+	// Earnings total pattern: "Total:" followed by 4 values (hrs, current$, ytd_hrs, ytd$).
+	// Used to extract YTD gross from columnar paystubs where the earnings section
+	// has a total row with hours and dollar columns.
+	earningsTotalPattern = regexp.MustCompile(`(?i)total\s*:?\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)`)
+
+	// Name pattern - handles various payroll provider labels.
+	// Order matters: "employee\s*name" must come before "employee" to avoid capturing "Name" as first name.
+	namePattern = regexp.MustCompile(`(?i)(?:statement\s*of\s*earnings\s*for|employee\s*name|employee|name|paid?\s*to(?:\s*the\s*order\s*of)?)[\s:]*([A-Za-z]+)`)
 
 	// Pre-tax deduction patterns.
-	deduction401kPattern = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[\s:]*\$?([0-9,]+\.\d{2})`)
-	deduction403bPattern = regexp.MustCompile(`(?i)403\s*\(?b\)?[\s:]*\$?([0-9,]+\.\d{2})`)
-	deductionHSAPattern  = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deduction401kPattern         = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[\s:]*\$?([0-9,]+\.\d{2})`)
+	deduction403bPattern         = regexp.MustCompile(`(?i)403\s*\(?b\)?[\s:]*\$?([0-9,]+\.\d{2})`)
+	deductionHSAPattern          = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[\s:]*\$?([0-9,]+\.\d{2})`)
 	deductionFSAHealthPattern    = regexp.MustCompile(`(?i)(?:(?:health(?:care)?\s*)?f\.?s\.?a\.?|flex(?:ible)?\s*spending)[\s:]*\$?([0-9,]+\.\d{2})`)
 	deductionFSADependentPattern = regexp.MustCompile(`(?i)(?:dep(?:endent)?\s*(?:care\s*)?f\.?s\.?a\.?|dependent\s*care)[\s:]*\$?([0-9,]+\.\d{2})`)
 	deductionCommuterPattern     = regexp.MustCompile(`(?i)(?:commuter|transit|parking\s*benefit)[\s:]*\$?([0-9,]+\.\d{2})`)
 
-	// YTD deduction patterns (optional).
+	// YTD deduction patterns — single-line (label + current + ytd on same line).
 	ytdDeduction401kPattern = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
 	ytdDeduction403bPattern = regexp.MustCompile(`(?i)403\s*\(?b\)?[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
 	ytdDeductionHSAPattern  = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[^\n]*\$?[0-9,]+\.\d{2}[^\n]*\$?([0-9,]+\.\d{2})`)
+
+	// YTD deduction patterns — multiline (values on separate lines after label).
+	ytdDeduction401kMultilinePattern = regexp.MustCompile(`(?i)(?:401\s*\(?k\)?|401k)[\s:]*\$?[0-9,]+\.\d{2}\s+\$?([0-9,]+\.\d{2})`)
+	ytdDeduction403bMultilinePattern = regexp.MustCompile(`(?i)403\s*\(?b\)?[\s:]*\$?[0-9,]+\.\d{2}\s+\$?([0-9,]+\.\d{2})`)
+	ytdDeductionHSAMultilinePattern  = regexp.MustCompile(`(?i)(?:h\.?s\.?a\.?|health\s*savings)[\s:]*\$?[0-9,]+\.\d{2}\s+\$?([0-9,]+\.\d{2})`)
 )
 
 func extractFields(text string) (*PaystubData, error) {
@@ -170,44 +206,13 @@ func extractFields(text string) (*PaystubData, error) {
 		missing = append(missing, "federal tax withheld")
 	}
 
-	// Extract pay period dates.
-	if m := payPeriodPattern.FindStringSubmatch(text); len(m) > 2 {
-		start, err1 := parseDate(m[1])
-		end, err2 := parseDate(m[2])
-		if err1 == nil && err2 == nil {
-			data.PayPeriodStart = start
-			data.PayPeriodEnd = end
-		} else {
-			missing = append(missing, "pay period dates")
-		}
-	} else {
+	// Extract pay period dates (cascade through patterns).
+	if !extractPayPeriodDates(text, data) {
 		missing = append(missing, "pay period dates")
 	}
 
 	// Extract YTD totals (optional — not a hard failure).
-	// Try simple "YTD Gross: $X" format first, then table format.
-	if m := ytdGrossSimplePattern.FindStringSubmatch(text); len(m) > 1 {
-		v, err := parseAmount(m[1])
-		if err == nil {
-			data.YTDGrossPay = v
-		}
-	} else if m := ytdGrossTablePattern.FindStringSubmatch(text); len(m) > 2 {
-		v, err := parseAmount(m[2]) // YTD is second column in table
-		if err == nil {
-			data.YTDGrossPay = v
-		}
-	}
-	if m := ytdFedTaxSimplePattern.FindStringSubmatch(text); len(m) > 1 {
-		v, err := parseAmount(m[1])
-		if err == nil {
-			data.YTDFederalTaxWithheld = v
-		}
-	} else if m := ytdFedTaxTablePattern.FindStringSubmatch(text); len(m) > 2 {
-		v, err := parseAmount(m[2]) // YTD is second column in table
-		if err == nil {
-			data.YTDFederalTaxWithheld = v
-		}
-	}
+	extractYTDTotals(text, data)
 
 	// Extract pre-tax deductions (optional — not a hard failure).
 	data.Deductions = extractDeductions(text)
@@ -221,20 +226,142 @@ func extractFields(text string) (*PaystubData, error) {
 	return data, nil
 }
 
+// extractPayPeriodDates tries multiple patterns to find pay period start/end dates.
+// Returns true if dates were successfully extracted.
+func extractPayPeriodDates(text string, data *PaystubData) bool {
+	// 1. Range pattern: "Pay Period: 01/01/2025 - 01/15/2025"
+	if m := payPeriodPattern.FindStringSubmatch(text); len(m) > 2 {
+		start, err1 := parseDate(m[1])
+		end, err2 := parseDate(m[2])
+		if err1 == nil && err2 == nil {
+			data.PayPeriodStart = start
+			data.PayPeriodEnd = end
+			return true
+		}
+	}
+
+	// 2. Separate Period Begin + Period End with adjacent dates.
+	if begin := periodBeginPattern.FindStringSubmatch(text); len(begin) > 1 {
+		if end := periodEndPattern.FindStringSubmatch(text); len(end) > 1 {
+			startDate, err1 := parseDate(begin[1])
+			endDate, err2 := parseDate(end[1])
+			if err1 == nil && err2 == nil {
+				data.PayPeriodStart = startDate
+				data.PayPeriodEnd = endDate
+				return true
+			}
+		}
+	}
+
+	// 3. Period Ending only (single date, infer start as end - 14 days).
+	if m := periodEndPattern.FindStringSubmatch(text); len(m) > 1 {
+		endDate, err := parseDate(m[1])
+		if err == nil {
+			data.PayPeriodEnd = endDate
+			data.PayPeriodStart = endDate.AddDate(0, 0, -14)
+			return true
+		}
+	}
+
+	// 4. Columnar layout: Period Begin/End labels exist but dates aren't adjacent.
+	// Find consecutive dates in the document and use the first two.
+	if periodBeginLabelPattern.MatchString(text) || periodEndLabelPattern.MatchString(text) {
+		matches := anyDatePattern.FindAllString(text, -1)
+		if len(matches) >= 2 {
+			var parsedDates []time.Time
+			for _, d := range matches {
+				if t, err := parseDate(d); err == nil {
+					parsedDates = append(parsedDates, t)
+					if len(parsedDates) == 2 {
+						break
+					}
+				}
+			}
+			if len(parsedDates) == 2 && parsedDates[0].Before(parsedDates[1]) {
+				data.PayPeriodStart = parsedDates[0]
+				data.PayPeriodEnd = parsedDates[1]
+				return true
+			}
+		}
+	}
+
+	// 5. Pay Date / Check Date (last resort, infer period as date - 14 days).
+	if m := payDatePattern.FindStringSubmatch(text); len(m) > 1 {
+		payDate, err := parseDate(m[1])
+		if err == nil {
+			data.PayPeriodEnd = payDate
+			data.PayPeriodStart = payDate.AddDate(0, 0, -14)
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractYTDTotals tries multiple patterns to find YTD gross and federal tax totals.
+func extractYTDTotals(text string, data *PaystubData) {
+	// YTD Gross: simple → reverse → table (single line) → earnings total (multiline).
+	if m := ytdGrossSimplePattern.FindStringSubmatch(text); len(m) > 1 {
+		if v, err := parseAmount(m[1]); err == nil {
+			data.YTDGrossPay = v
+		}
+	} else if m := ytdGrossReversePattern.FindStringSubmatch(text); len(m) > 1 {
+		if v, err := parseAmount(m[1]); err == nil {
+			data.YTDGrossPay = v
+		}
+	} else if m := ytdGrossTablePattern.FindStringSubmatch(text); len(m) > 2 {
+		if v, err := parseAmount(m[2]); err == nil {
+			data.YTDGrossPay = v
+		}
+	} else if m := ytdGrossMultilinePattern.FindStringSubmatch(text); len(m) > 2 {
+		if v, err := parseAmount(m[2]); err == nil {
+			data.YTDGrossPay = v
+		}
+	} else if data.GrossPay > 0 {
+		// Try earnings total pattern: "Total: hours current_$ ytd_hours ytd_$"
+		// Verify the current$ matches our extracted gross pay.
+		if m := earningsTotalPattern.FindStringSubmatch(text); len(m) > 4 {
+			if current, err := parseAmount(m[2]); err == nil {
+				if current == data.GrossPay {
+					if ytd, err := parseAmount(m[4]); err == nil {
+						data.YTDGrossPay = ytd
+					}
+				}
+			}
+		}
+	}
+
+	// YTD Federal Tax: simple → table (single line) → multiline table.
+	if m := ytdFedTaxSimplePattern.FindStringSubmatch(text); len(m) > 1 {
+		if v, err := parseAmount(m[1]); err == nil {
+			data.YTDFederalTaxWithheld = v
+		}
+	} else if m := ytdFedTaxTablePattern.FindStringSubmatch(text); len(m) > 2 {
+		if v, err := parseAmount(m[2]); err == nil {
+			data.YTDFederalTaxWithheld = v
+		}
+	} else if m := ytdFedTaxMultilinePattern.FindStringSubmatch(text); len(m) > 2 {
+		if v, err := parseAmount(m[2]); err == nil {
+			data.YTDFederalTaxWithheld = v
+		}
+	}
+}
+
 func extractDeductions(text string) []Deduction {
 	type deductionSpec struct {
-		typ        string
-		pattern    *regexp.Regexp
-		ytdPattern *regexp.Regexp // nil if no YTD pattern
+		typ              string
+		pattern          *regexp.Regexp
+		ytdPattern       *regexp.Regexp // single-line YTD pattern
+		ytdMultiline     *regexp.Regexp // multiline YTD fallback
 	}
 
 	specs := []deductionSpec{
-		{"401k", deduction401kPattern, ytdDeduction401kPattern},
-		{"403b", deduction403bPattern, ytdDeduction403bPattern},
-		{"hsa", deductionHSAPattern, ytdDeductionHSAPattern},
-		{"fsa_dependent", deductionFSADependentPattern, nil},
-		{"fsa_health", deductionFSAHealthPattern, nil},
-		{"commuter", deductionCommuterPattern, nil},
+		{"401k", deduction401kPattern, ytdDeduction401kPattern, ytdDeduction401kMultilinePattern},
+		{"403b", deduction403bPattern, ytdDeduction403bPattern, ytdDeduction403bMultilinePattern},
+		{"hsa", deductionHSAPattern, ytdDeductionHSAPattern, ytdDeductionHSAMultilinePattern},
+		{"fsa_dependent", deductionFSADependentPattern, nil, nil},
+		{"fsa_health", deductionFSAHealthPattern, nil, nil},
+		{"commuter", deductionCommuterPattern, nil, nil},
 	}
 
 	var deductions []Deduction
@@ -245,10 +372,17 @@ func extractDeductions(text string) []Deduction {
 				continue
 			}
 			d := Deduction{Type: spec.typ, Amount: amount}
+			// Try single-line YTD pattern first, then multiline fallback.
 			if spec.ytdPattern != nil {
 				if ym := spec.ytdPattern.FindStringSubmatch(text); len(ym) > 1 {
 					if ytd, err := parseAmount(ym[1]); err == nil {
 						d.YTDAmount = ytd
+					}
+				} else if spec.ytdMultiline != nil {
+					if ym := spec.ytdMultiline.FindStringSubmatch(text); len(ym) > 1 {
+						if ytd, err := parseAmount(ym[1]); err == nil {
+							d.YTDAmount = ytd
+						}
 					}
 				}
 			}
