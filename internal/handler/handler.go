@@ -511,6 +511,9 @@ func buildEarnerSummaries(paystubs []db.Paystub) []calc.EarnerSummary {
 			e.AvgGrossPerPeriod = e.TotalGrossPay / float64(e.PayPeriodsUploaded)
 		}
 
+		// Set LatestPayPeriodEnd from the last stub (stubs are sorted by pay_period_start ASC).
+		e.LatestPayPeriodEnd = latest.PayPeriodEnd
+
 		earners = append(earners, e)
 	}
 

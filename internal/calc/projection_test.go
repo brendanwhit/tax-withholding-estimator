@@ -136,10 +136,11 @@ func TestBonusDetection(t *testing.T) {
 	}
 
 	// Projection should use regular paycheck ($800), not the bonus.
-	// 4 regular stubs + 1 bonus = 5 total. Remaining = 26 - 5 = 21.
-	// Projected remaining should be 21 * 800 = 16800.
-	if bob.ProjectedRemaining != 21*800 {
-		t.Errorf("projected remaining = %v, want %v", bob.ProjectedRemaining, 21*800)
+	// Latest pay period end is Feb 25. Days elapsed = 55, period = 14.04 days.
+	// Elapsed periods = round(55/14.04) = 4. Remaining = 26 - 4 = 22.
+	// Projected remaining should be 22 * 800 = 17600.
+	if bob.ProjectedRemaining != 22*800 {
+		t.Errorf("projected remaining = %v, want %v", bob.ProjectedRemaining, 22*800)
 	}
 }
 

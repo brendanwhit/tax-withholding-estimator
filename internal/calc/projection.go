@@ -247,14 +247,21 @@ func classifyPaystubs(stubs []db.Paystub, freq PayFrequency) (regular, bonuses [
 	return regular, bonuses
 }
 
-// remainingPayPeriods calculates periods left in the year from the reference date.
+// remainingPayPeriods calculates periods left in the year using the latest
+// pay period end date rather than counting uploaded stubs, which would
+// undercount if uploads are missed.
 func remainingPayPeriods(refDate time.Time, taxYear int, periodsPerYear int, stubs []db.Paystub) int {
-	// Count distinct periods already received.
-	periodsElapsed := len(stubs)
-
-	remaining := periodsPerYear - periodsElapsed
-	if remaining < 0 {
-		remaining = 0
+	if len(stubs) == 0 {
+		return periodsRemainingFromDate(refDate, taxYear, periodsPerYear)
 	}
-	return remaining
+
+	// Find the latest PayPeriodEnd across all stubs.
+	latestEnd := stubs[0].PayPeriodEnd
+	for _, s := range stubs[1:] {
+		if s.PayPeriodEnd.After(latestEnd) {
+			latestEnd = s.PayPeriodEnd
+		}
+	}
+
+	return periodsRemainingFromDate(latestEnd, taxYear, periodsPerYear)
 }

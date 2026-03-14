@@ -37,6 +37,7 @@ func TestCombinedTaxLiabilityFromTwoIncomes(t *testing.T) {
 			LatestYTDGross:       50000,
 			LatestYTDFedWithheld: 7500,
 			AvgGrossPerPeriod:    50000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			Name:                 "Bob",
@@ -46,6 +47,7 @@ func TestCombinedTaxLiabilityFromTwoIncomes(t *testing.T) {
 			LatestYTDGross:       40000,
 			LatestYTDFedWithheld: 5000,
 			AvgGrossPerPeriod:    40000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -82,6 +84,7 @@ func TestSubtractsTotalWithheldFromBothEarners(t *testing.T) {
 			LatestYTDGross:       60000,
 			LatestYTDFedWithheld: 10000,
 			AvgGrossPerPeriod:    60000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			Name:                 "Dan",
@@ -91,6 +94,7 @@ func TestSubtractsTotalWithheldFromBothEarners(t *testing.T) {
 			LatestYTDGross:       50000,
 			LatestYTDFedWithheld: 8000,
 			AvgGrossPerPeriod:    50000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -117,6 +121,7 @@ func TestRecommendsAdditionalWithholdingForHigherEarner(t *testing.T) {
 			LatestYTDGross:       80000,
 			LatestYTDFedWithheld: 8000,
 			AvgGrossPerPeriod:    80000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			Name:                 "Frank",
@@ -126,6 +131,7 @@ func TestRecommendsAdditionalWithholdingForHigherEarner(t *testing.T) {
 			LatestYTDGross:       30000,
 			LatestYTDFedWithheld: 2000,
 			AvgGrossPerPeriod:    30000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -148,7 +154,7 @@ func TestAdjustsRecommendationWithMorePayPeriods(t *testing.T) {
 		t.Fatal("expected brackets")
 	}
 
-	makeEarners := func(periods int, totalGross, totalWithheld float64) []calc.EarnerSummary {
+	makeEarners := func(periods int, totalGross, totalWithheld float64, latestEnd time.Time) []calc.EarnerSummary {
 		return []calc.EarnerSummary{
 			{
 				Name:                 "Gina",
@@ -158,6 +164,7 @@ func TestAdjustsRecommendationWithMorePayPeriods(t *testing.T) {
 				LatestYTDGross:       totalGross,
 				LatestYTDFedWithheld: totalWithheld,
 				AvgGrossPerPeriod:    totalGross / float64(periods),
+				LatestPayPeriodEnd:   latestEnd,
 			},
 			{
 				Name:                 "Hank",
@@ -167,15 +174,16 @@ func TestAdjustsRecommendationWithMorePayPeriods(t *testing.T) {
 				LatestYTDGross:       totalGross * 0.8,
 				LatestYTDFedWithheld: totalWithheld * 0.8,
 				AvgGrossPerPeriod:    (totalGross * 0.8) / float64(periods),
+				LatestPayPeriodEnd:   latestEnd,
 			},
 		}
 	}
 
-	// Mid-year: 13 periods uploaded.
-	earlyResult := withholding(schedule, makeEarners(13, 65000, 6500), time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
+	// Mid-year: 13 periods, latest pay period ending late June.
+	earlyResult := withholding(schedule, makeEarners(13, 65000, 6500, time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC)), time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
 
-	// Late year: 20 periods uploaded.
-	lateResult := withholding(schedule, makeEarners(20, 100000, 10000), time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC))
+	// Late year: 20 periods, latest pay period ending late September.
+	lateResult := withholding(schedule, makeEarners(20, 100000, 10000, time.Date(2025, 9, 26, 0, 0, 0, 0, time.UTC)), time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC))
 
 	// With fewer remaining pay periods, the per-paycheck additional should be higher
 	// (assuming similar under-withholding). The late result has fewer remaining periods
@@ -201,6 +209,7 @@ func TestSupplementalIncomeAffectsLiability(t *testing.T) {
 			LatestYTDGross:       70000,
 			LatestYTDFedWithheld: 10000,
 			AvgGrossPerPeriod:    70000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -254,6 +263,7 @@ func TestOverwithheld(t *testing.T) {
 			LatestYTDGross:       50000,
 			LatestYTDFedWithheld: 20000,
 			AvgGrossPerPeriod:    50000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -283,6 +293,7 @@ func TestPreTaxDeductionsReduceTaxLiability(t *testing.T) {
 			LatestYTDGross:       75000,
 			LatestYTDFedWithheld: 8000,
 			AvgGrossPerPeriod:    75000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			Name:                 "Leo",
@@ -292,6 +303,7 @@ func TestPreTaxDeductionsReduceTaxLiability(t *testing.T) {
 			LatestYTDGross:       65000,
 			LatestYTDFedWithheld: 7000,
 			AvgGrossPerPeriod:    65000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -339,6 +351,7 @@ func TestProjectedRemainingOverridesAverageEstimate(t *testing.T) {
 			LatestYTDGross:       80000,
 			LatestYTDFedWithheld: 6000,
 			AvgGrossPerPeriod:    80000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
 		},
 	}
 
@@ -366,5 +379,38 @@ func TestProjectedRemainingOverridesAverageEstimate(t *testing.T) {
 	if withProjection.AdditionalPerPaycheck >= withoutProjection.AdditionalPerPaycheck {
 		t.Errorf("with EOY projection should recommend less additional: without=%v, with=%v",
 			withoutProjection.AdditionalPerPaycheck, withProjection.AdditionalPerPaycheck)
+	}
+}
+
+func TestRemainingPeriodsUsesDateNotUploadCount(t *testing.T) {
+	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
+	if schedule == nil {
+		t.Fatal("expected brackets")
+	}
+
+	// Simulate missed uploads: only 10 stubs uploaded but latest pay period end
+	// is mid-year (should correspond to ~13 elapsed periods for biweekly).
+	earners := []calc.EarnerSummary{
+		{
+			Name:                 "Nina",
+			TotalGrossPay:        50000,
+			TotalFederalWithheld: 5000,
+			PayPeriodsUploaded:   10, // only 10 uploaded, but 13 have elapsed
+			LatestYTDGross:       50000,
+			LatestYTDFedWithheld: 5000,
+			AvgGrossPerPeriod:    50000.0 / 10.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result := withholding(schedule, earners, time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
+
+	// With the old bug (counting uploads), remaining would be 26-10=16.
+	// With the fix (using date), remaining should be 26-13=13.
+	if result.RemainingPayPeriods == 16 {
+		t.Error("RemainingPayPeriods should use dates not upload count; got 16 (the buggy value)")
+	}
+	if result.RemainingPayPeriods != 13 {
+		t.Errorf("RemainingPayPeriods = %d, want 13 (date-based calculation)", result.RemainingPayPeriods)
 	}
 }
