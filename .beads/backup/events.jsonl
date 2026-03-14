@@ -1,0 +1,21 @@
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":1,"issue_id":"tax-1bi","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":2,"issue_id":"tax-1jh","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":3,"issue_id":"tax-1m2","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":4,"issue_id":"tax-23r","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":5,"issue_id":"tax-5aj","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":6,"issue_id":"tax-5nr","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":7,"issue_id":"tax-6sy","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":8,"issue_id":"tax-b2b","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":9,"issue_id":"tax-d7g","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":10,"issue_id":"tax-ej4","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":11,"issue_id":"tax-oz0","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":12,"issue_id":"tax-v3i","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":13,"issue_id":"tax-withholding-estimator-4nm","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":14,"issue_id":"tax-withholding-estimator-5sb","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":15,"issue_id":"tax-withholding-estimator-clo","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":16,"issue_id":"tax-withholding-estimator-o4p","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":17,"issue_id":"tax-withholding-estimator-tq6","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:31Z","event_type":"created","id":18,"issue_id":"tax-withholding-estimator-wur","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:04:50Z","event_type":"created","id":19,"issue_id":"tax-4i4","new_value":"","old_value":""}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:07:14Z","event_type":"status_changed","id":20,"issue_id":"tax-4i4","new_value":"{\"status\":\"in_progress\"}","old_value":"{\"id\":\"tax-4i4\",\"title\":\"Fix remaining pay periods to use dates instead of upload count\",\"description\":\"estimateRemainingPayPeriods() and remainingPayPeriods() count uploaded stubs to calculate remaining periods. If a paystub upload is missed, this overestimates remaining periods and underestimates needed additional withholding. Fix: use LatestPayPeriodEnd dates and inferred frequency to calculate elapsed periods.\",\"status\":\"open\",\"priority\":1,\"issue_type\":\"bug\",\"owner\":\"brendan.whitney@faraday.io\",\"created_at\":\"2026-03-14T23:04:50Z\",\"created_by\":\"Brendan Whitney\",\"updated_at\":\"2026-03-14T23:04:50Z\"}"}
+{"actor":"Brendan Whitney","comment":null,"created_at":"2026-03-14T17:26:53Z","event_type":"closed","id":21,"issue_id":"tax-4i4","new_value":"Fixed both functions to use date-based elapsed period calculation instead of counting uploaded stubs","old_value":""}
