@@ -119,12 +119,26 @@ func projectForPerson(name string, stubs []db.Paystub, refDate time.Time, taxYea
 }
 
 // InferPayFrequency determines pay frequency from a sorted slice of paystubs.
+// It uses pay period length (end - start) as the primary signal to distinguish
+// weekly and monthly frequencies. For the ambiguous biweekly/semi-monthly range,
+// it uses gaps between consecutive stubs when available. This handles
+// non-consecutive uploads correctly (e.g., two biweekly stubs from different
+// months won't be misclassified as monthly).
 func InferPayFrequency(stubs []db.Paystub) PayFrequency {
-	if len(stubs) < 2 {
+	if len(stubs) < 1 {
 		return FrequencyBiweekly // default assumption
 	}
 
-	// Calculate gaps between consecutive pay period start dates.
+	// Compute pay period lengths (end - start) for each stub.
+	var periodLengths []int
+	for _, s := range stubs {
+		days := int(s.PayPeriodEnd.Sub(s.PayPeriodStart).Hours() / 24)
+		if days > 0 {
+			periodLengths = append(periodLengths, days)
+		}
+	}
+
+	// Compute gaps between consecutive pay period start dates.
 	var gaps []int
 	for i := 1; i < len(stubs); i++ {
 		days := int(stubs[i].PayPeriodStart.Sub(stubs[i-1].PayPeriodStart).Hours() / 24)
@@ -133,20 +147,55 @@ func InferPayFrequency(stubs []db.Paystub) PayFrequency {
 		}
 	}
 
+	// Use period length to identify clear weekly or monthly cases.
+	if len(periodLengths) > 0 {
+		sort.Ints(periodLengths)
+		medianLength := periodLengths[len(periodLengths)/2]
+
+		if medianLength <= 9 {
+			return FrequencyWeekly
+		}
+		if medianLength > 20 {
+			return FrequencyMonthly
+		}
+
+		// Period length is in the 10-20 day range (biweekly or semi-monthly).
+		// Use gaps between consecutive stubs to disambiguate if available.
+		if len(gaps) > 0 {
+			sort.Ints(gaps)
+			medianGap := gaps[len(gaps)/2]
+			if medianGap <= 14 {
+				return FrequencyBiweekly
+			}
+			if medianGap <= 20 {
+				return FrequencySemiMonthly
+			}
+			// Gaps > 20 means stubs are non-consecutive; fall through to
+			// period length heuristic below.
+		}
+
+		// No consecutive gaps available or gaps are too wide (non-consecutive uploads).
+		// Use period length: biweekly periods are typically 13-14 days,
+		// semi-monthly periods vary more (12-16 days with a median around 15).
+		if medianLength <= 14 {
+			return FrequencyBiweekly
+		}
+		return FrequencySemiMonthly
+	}
+
+	// No period length data; fall back to gaps only.
 	if len(gaps) == 0 {
 		return FrequencyBiweekly
 	}
 
-	// Use median gap to be robust to outliers (bonuses).
 	sort.Ints(gaps)
-	median := gaps[len(gaps)/2]
-
+	medianGap := gaps[len(gaps)/2]
 	switch {
-	case median <= 9:
+	case medianGap <= 9:
 		return FrequencyWeekly
-	case median <= 14:
+	case medianGap <= 14:
 		return FrequencyBiweekly
-	case median <= 20:
+	case medianGap <= 20:
 		return FrequencySemiMonthly
 	default:
 		return FrequencyMonthly

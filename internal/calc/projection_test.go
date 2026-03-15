@@ -57,6 +57,30 @@ func TestInferPayFrequencyMonthly(t *testing.T) {
 	}
 }
 
+func TestInferPayFrequencyBiweeklyNonConsecutive(t *testing.T) {
+	// Two biweekly stubs from different months — gap is ~28 days but
+	// each pay period spans ~14 days, so frequency should be biweekly.
+	stubs := []db.Paystub{
+		makeStubDates("Lucy", 2025, 1, 13, 1, 24, 5000, 800),
+		makeStubDates("Lucy", 2025, 2, 10, 2, 21, 5000, 800),
+	}
+	freq := calc.InferPayFrequency(stubs)
+	if freq != calc.FrequencyBiweekly {
+		t.Errorf("expected Bi-weekly for non-consecutive stubs, got %s", freq)
+	}
+}
+
+func TestInferPayFrequencySingleStub(t *testing.T) {
+	// A single biweekly stub should be inferred from its period length.
+	stubs := []db.Paystub{
+		makeStubDates("A", 2025, 3, 3, 3, 14, 5000, 800),
+	}
+	freq := calc.InferPayFrequency(stubs)
+	if freq != calc.FrequencyBiweekly {
+		t.Errorf("expected Bi-weekly for single 14-day stub, got %s", freq)
+	}
+}
+
 func TestProjectEOYWithholding(t *testing.T) {
 	// 3 biweekly paystubs for Alice (14-day gaps).
 	stubs := map[string][]db.Paystub{
