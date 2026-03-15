@@ -203,3 +203,76 @@ func TestSeparateProjectionsPerPerson(t *testing.T) {
 		t.Error("combined EOY estimate should be > 0")
 	}
 }
+
+func TestProjectionUsesYTDWithheldFromLatestStub(t *testing.T) {
+	// Simulate 3 uploaded stubs out of 5 elapsed pay periods.
+	// Each stub has $870 current federal tax, but the latest stub's YTD
+	// shows $4,041.03 (covering all 5 periods, not just the 3 uploaded).
+	ytdFed := 4041.03
+	stubs := map[string][]db.Paystub{
+		"Brendan": {
+			{
+				PersonName:     "Brendan",
+				TaxYear:        2025,
+				PayPeriodStart: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+				PayPeriodEnd:   time.Date(2025, 1, 14, 0, 0, 0, 0, time.UTC),
+				GrossPay:       5838.46,
+				FederalTaxWithheld: 870.00,
+			},
+			{
+				PersonName:     "Brendan",
+				TaxYear:        2025,
+				PayPeriodStart: time.Date(2025, 1, 29, 0, 0, 0, 0, time.UTC),
+				PayPeriodEnd:   time.Date(2025, 2, 11, 0, 0, 0, 0, time.UTC),
+				GrossPay:       5838.46,
+				FederalTaxWithheld: 870.00,
+			},
+			{
+				PersonName:            "Brendan",
+				TaxYear:               2025,
+				PayPeriodStart:        time.Date(2025, 2, 26, 0, 0, 0, 0, time.UTC),
+				PayPeriodEnd:          time.Date(2025, 3, 11, 0, 0, 0, 0, time.UTC),
+				GrossPay:              5838.46,
+				FederalTaxWithheld:    870.00,
+				YTDFederalTaxWithheld: &ytdFed,
+			},
+		},
+	}
+
+	refDate := time.Date(2025, 3, 14, 0, 0, 0, 0, time.UTC)
+	proj := calc.ProjectEOYWithholding(stubs, refDate, 2025)
+
+	brendan := proj.Earners[0]
+
+	// Should use YTD ($4,041.03), not sum of uploaded stubs ($2,610).
+	if brendan.TotalWithheldToDate != 4041.03 {
+		t.Errorf("TotalWithheldToDate = %v, want 4041.03 (from YTD)", brendan.TotalWithheldToDate)
+	}
+
+	// Sum of individual stubs is $2,610, so YTD is higher — confirms
+	// the projection accounts for non-uploaded pay periods.
+	sumOfStubs := 870.0 * 3
+	if brendan.TotalWithheldToDate <= sumOfStubs {
+		t.Errorf("TotalWithheldToDate (%v) should exceed sum of uploaded stubs (%v)",
+			brendan.TotalWithheldToDate, sumOfStubs)
+	}
+}
+
+func TestProjectionFallsBackToSumWhenNoYTD(t *testing.T) {
+	// Stubs without YTD data should still work by summing individual amounts.
+	stubs := map[string][]db.Paystub{
+		"Alice": {
+			makeStubDates("Alice", 2025, 1, 1, 1, 14, 5000, 800),
+			makeStubDates("Alice", 2025, 1, 15, 1, 28, 5000, 800),
+			makeStubDates("Alice", 2025, 1, 29, 2, 11, 5000, 800),
+		},
+	}
+
+	refDate := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	proj := calc.ProjectEOYWithholding(stubs, refDate, 2025)
+
+	alice := proj.Earners[0]
+	if alice.TotalWithheldToDate != 2400 {
+		t.Errorf("TotalWithheldToDate = %v, want 2400 (sum of stubs)", alice.TotalWithheldToDate)
+	}
+}

@@ -95,15 +95,28 @@ func projectForPerson(name string, stubs []db.Paystub, refDate time.Time, taxYea
 	// Classify each paystub as regular or bonus.
 	regular, bonuses := classifyPaystubs(stubs, ep.PayFrequency)
 
-	// Sum withholding.
+	// Sum withholding from individual stubs.
+	var sumRegular, sumBonus float64
 	for _, s := range regular {
-		ep.RegularWithheldToDate += s.FederalTaxWithheld
+		sumRegular += s.FederalTaxWithheld
 	}
 	for _, s := range bonuses {
-		ep.BonusWithheldToDate += s.FederalTaxWithheld
+		sumBonus += s.FederalTaxWithheld
 	}
-	ep.TotalWithheldToDate = ep.RegularWithheldToDate + ep.BonusWithheldToDate
+	ep.RegularWithheldToDate = sumRegular
+	ep.BonusWithheldToDate = sumBonus
 	ep.BonusCount = len(bonuses)
+
+	// Use YTD federal tax withheld from the latest stub when available,
+	// since it accounts for all pay periods (including ones not uploaded).
+	latestStub := stubs[len(stubs)-1]
+	if latestStub.YTDFederalTaxWithheld != nil && *latestStub.YTDFederalTaxWithheld >= sumRegular+sumBonus {
+		ep.TotalWithheldToDate = *latestStub.YTDFederalTaxWithheld
+		// Attribute the difference to regular withholding (unuploaded stubs).
+		ep.RegularWithheldToDate = ep.TotalWithheldToDate - ep.BonusWithheldToDate
+	} else {
+		ep.TotalWithheldToDate = sumRegular + sumBonus
+	}
 
 	// Project remaining withholding from the most recent regular paycheck.
 	if len(regular) > 0 && ep.PayFrequency != FrequencyUnknown {
