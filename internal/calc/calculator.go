@@ -1,6 +1,7 @@
 package calc
 
 import (
+	"math"
 	"time"
 
 	"github.com/brendanwhit/tax-withholding-estimator/internal/tax"
@@ -15,6 +16,15 @@ type EarnerSummary struct {
 	LatestYTDGross        float64
 	LatestYTDFedWithheld  float64
 	AvgGrossPerPeriod     float64
+	LatestPayPeriodEnd    time.Time
+}
+
+// EarnerWithholdingOption shows how much additional withholding each earner
+// would need per paycheck to cover the remaining tax gap.
+type EarnerWithholdingOption struct {
+	Name                  string
+	RemainingPayPeriods   int
+	AdditionalPerPaycheck float64
 }
 
 // WithholdingResult holds the full recommendation.
@@ -32,6 +42,7 @@ type WithholdingResult struct {
 	Earners               []EarnerSummary
 	SupplementalIncome    float64
 	PreTaxDeductions      float64
+	PerEarnerOptions      []EarnerWithholdingOption
 }
 
 // WithholdingInput holds all inputs for the withholding calculation.
@@ -45,6 +56,9 @@ type WithholdingInput struct {
 	// ProjectedRemainingWithholding, if > 0, overrides the internal average-based
 	// estimate with the EOY projection's number for consistency.
 	ProjectedRemainingWithholding float64
+	// PerEarnerRemainingPeriods provides each earner's remaining pay periods
+	// (from EOY projection) for per-earner withholding options.
+	PerEarnerRemainingPeriods map[string]int
 }
 
 // CalculateWithholding computes the withholding recommendation.
@@ -110,15 +124,34 @@ func CalculateWithholding(in WithholdingInput) *WithholdingResult {
 	)
 
 	// Additional withholding per paycheck for the higher earner.
+	var gap float64
 	if result.RemainingPayPeriods > 0 && result.RemainingTaxOwed > 0 {
 		// Use EOY projection if provided, otherwise fall back to average-based estimate.
 		normalWithholdingRemaining := in.ProjectedRemainingWithholding
 		if normalWithholdingRemaining == 0 {
 			normalWithholdingRemaining = estimateNormalWithholdingRemaining(earners, result.RemainingPayPeriods, totalPayPeriodsPerYear)
 		}
-		gap := result.TotalTaxLiability - result.TotalWithheldToDate - normalWithholdingRemaining
+		gap = result.TotalTaxLiability - result.TotalWithheldToDate - normalWithholdingRemaining
 		if gap > 0 {
 			result.AdditionalPerPaycheck = gap / float64(result.RemainingPayPeriods)
+		}
+	}
+
+	// Build per-earner withholding options.
+	if gap > 0 && len(in.PerEarnerRemainingPeriods) > 0 {
+		for _, e := range earners {
+			remaining, ok := in.PerEarnerRemainingPeriods[e.Name]
+			if !ok {
+				continue
+			}
+			opt := EarnerWithholdingOption{
+				Name:                e.Name,
+				RemainingPayPeriods: remaining,
+			}
+			if remaining > 0 {
+				opt.AdditionalPerPaycheck = gap / float64(remaining)
+			}
+			result.PerEarnerOptions = append(result.PerEarnerOptions, opt)
 		}
 	}
 
@@ -141,36 +174,39 @@ func estimateAnnualIncome(earners []EarnerSummary, totalPayPeriods int) float64 
 }
 
 // estimateRemainingPayPeriods calculates how many pay periods are left in the year.
+// It uses the latest pay period end date across earners to determine elapsed periods
+// rather than counting uploaded stubs, which would undercount if uploads are missed.
 func estimateRemainingPayPeriods(refDate time.Time, taxYear int, totalPerYear int, earners []EarnerSummary) int {
-	// Count how many periods have been uploaded so far across earners.
-	maxUploaded := 0
+	// Find the latest pay period end date across all earners.
+	var latestEnd time.Time
 	for _, e := range earners {
-		if e.PayPeriodsUploaded > maxUploaded {
-			maxUploaded = e.PayPeriodsUploaded
+		if !e.LatestPayPeriodEnd.IsZero() && e.LatestPayPeriodEnd.After(latestEnd) {
+			latestEnd = e.LatestPayPeriodEnd
 		}
 	}
 
-	if maxUploaded > 0 {
-		remaining := totalPerYear - maxUploaded
-		if remaining < 0 {
-			remaining = 0
-		}
-		return remaining
+	if !latestEnd.IsZero() {
+		return periodsRemainingFromDate(latestEnd, taxYear, totalPerYear)
 	}
 
-	// Fallback: estimate from calendar position.
+	// Fallback: estimate from calendar position using refDate.
+	return periodsRemainingFromDate(refDate, taxYear, totalPerYear)
+}
+
+// periodsRemainingFromDate calculates remaining pay periods from a date within the tax year.
+func periodsRemainingFromDate(date time.Time, taxYear int, totalPerYear int) int {
 	yearStart := time.Date(taxYear, 1, 1, 0, 0, 0, 0, time.UTC)
-	yearEnd := time.Date(taxYear, 12, 31, 0, 0, 0, 0, time.UTC)
-	totalDays := yearEnd.Sub(yearStart).Hours() / 24
-	elapsedDays := refDate.Sub(yearStart).Hours() / 24
-	if elapsedDays < 0 {
-		elapsedDays = 0
+	daysElapsed := date.Sub(yearStart).Hours() / 24
+	if daysElapsed < 0 {
+		return totalPerYear
 	}
-	fractionRemaining := 1.0 - (elapsedDays / totalDays)
-	if fractionRemaining < 0 {
-		fractionRemaining = 0
+	periodLengthDays := 365.0 / float64(totalPerYear)
+	elapsed := int(math.Round(daysElapsed / periodLengthDays))
+	remaining := totalPerYear - elapsed
+	if remaining < 0 {
+		remaining = 0
 	}
-	return int(fractionRemaining * float64(totalPerYear))
+	return remaining
 }
 
 // estimateNormalWithholdingRemaining estimates what will be withheld in remaining periods

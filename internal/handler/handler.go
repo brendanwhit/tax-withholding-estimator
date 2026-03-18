@@ -220,6 +220,12 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	eoyProjection := calc.ProjectEOYWithholding(paystubsByPerson, time.Now(), year)
 
+	// Build per-earner remaining periods from EOY projection.
+	perEarnerRemaining := make(map[string]int)
+	for _, ep := range eoyProjection.Earners {
+		perEarnerRemaining[ep.Name] = ep.RemainingPayPeriods
+	}
+
 	result := calc.CalculateWithholding(calc.WithholdingInput{
 		Schedule:                      schedule,
 		Earners:                       earners,
@@ -227,6 +233,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		ReferenceDate:                 time.Now(),
 		PreTaxDeductions:              totalPreTaxDeductions,
 		ProjectedRemainingWithholding: eoyProjection.CombinedProjected,
+		PerEarnerRemainingPeriods:     perEarnerRemaining,
 	})
 
 	data := map[string]interface{}{
@@ -361,6 +368,12 @@ func (s *Server) processUploadedFile(header *multipart.FileHeader) uploadResult 
 	}
 	if data.YTDFederalTaxWithheld > 0 {
 		paystub.YTDFederalTaxWithheld = &data.YTDFederalTaxWithheld
+	}
+	if data.Hours > 0 {
+		paystub.Hours = &data.Hours
+	}
+	if data.YTDHours > 0 {
+		paystub.YTDHours = &data.YTDHours
 	}
 
 	paystubID, err := s.Store.SavePaystub(paystub)
@@ -510,6 +523,9 @@ func buildEarnerSummaries(paystubs []db.Paystub) []calc.EarnerSummary {
 		if e.PayPeriodsUploaded > 0 {
 			e.AvgGrossPerPeriod = e.TotalGrossPay / float64(e.PayPeriodsUploaded)
 		}
+
+		// Set LatestPayPeriodEnd from the last stub (stubs are sorted by pay_period_start ASC).
+		e.LatestPayPeriodEnd = latest.PayPeriodEnd
 
 		earners = append(earners, e)
 	}

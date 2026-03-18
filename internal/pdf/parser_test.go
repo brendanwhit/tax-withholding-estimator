@@ -702,6 +702,106 @@ $3,398.00
 	}
 }
 
+func TestParsePaystubExtractsHours(t *testing.T) {
+	// Columnar format with earnings total row: hours, current$, ytd_hours, ytd$.
+	content := `Statement of Earnings For:
+Emily
+
+1/1/2026
+1/14/2026
+
+Period Begin:
+Period End:
+
+Gross Pay
+$3,200.00
+
+FEDERAL WH
+98.50
+257.30
+
+Total:
+65.00
+3,200.00
+195.00
+9,600.00
+`
+	path, size := createTestPDF(t, content)
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := pdfparse.ParsePaystub(f, size)
+	if err != nil {
+		t.Fatalf("ParsePaystub: %v", err)
+	}
+
+	if data.Hours != 65.00 {
+		t.Errorf("Hours = %v, want 65.00", data.Hours)
+	}
+	if data.YTDHours != 195.00 {
+		t.Errorf("YTDHours = %v, want 195.00", data.YTDHours)
+	}
+}
+
+func TestParsePaystubHoursWorkedLabel(t *testing.T) {
+	content := `EARNINGS STATEMENT
+Employee: Mike Johnson
+Pay Period: 01/01/2026 - 01/14/2026
+Hours Worked: 72.50
+Gross Pay: $2,175.00
+Federal Income Tax: $217.50
+`
+	path, size := createTestPDF(t, content)
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := pdfparse.ParsePaystub(f, size)
+	if err != nil {
+		t.Fatalf("ParsePaystub: %v", err)
+	}
+
+	if data.Hours != 72.50 {
+		t.Errorf("Hours = %v, want 72.50", data.Hours)
+	}
+}
+
+func TestParsePaystubNoHoursIsZero(t *testing.T) {
+	// Salaried stub without hours data — should parse fine with 0 hours.
+	content := `EARNINGS STATEMENT
+Employee: John Smith
+Pay Period: 01/01/2025 - 01/15/2025
+Gross Pay: $5,384.62
+Federal Income Tax: $807.69
+`
+	path, size := createTestPDF(t, content)
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	data, err := pdfparse.ParsePaystub(f, size)
+	if err != nil {
+		t.Fatalf("ParsePaystub: %v", err)
+	}
+
+	if data.Hours != 0 {
+		t.Errorf("Hours = %v, want 0 for salary stub", data.Hours)
+	}
+	if data.YTDHours != 0 {
+		t.Errorf("YTDHours = %v, want 0 for salary stub", data.YTDHours)
+	}
+}
+
 // isParseError checks if the error is a ParseError.
 func isParseError(err error, target **pdfparse.ParseError) bool {
 	if pe, ok := err.(*pdfparse.ParseError); ok {

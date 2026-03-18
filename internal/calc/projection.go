@@ -34,10 +34,28 @@ func (f PayFrequency) String() string {
 	}
 }
 
+// PayType indicates whether an earner is salaried or hourly.
+type PayType int
+
+const (
+	PayTypeSalaried PayType = iota
+	PayTypeHourly
+)
+
+func (p PayType) String() string {
+	switch p {
+	case PayTypeHourly:
+		return "Hourly"
+	default:
+		return "Salaried"
+	}
+}
+
 // EarnerProjection holds the EOY projection for a single person.
 type EarnerProjection struct {
 	Name                  string
 	PayFrequency          PayFrequency
+	PayType               PayType
 	RegularWithheldToDate float64
 	BonusWithheldToDate   float64
 	TotalWithheldToDate   float64
@@ -45,6 +63,7 @@ type EarnerProjection struct {
 	ProjectedEOYTotal     float64
 	BonusCount            int
 	RemainingPayPeriods   int
+	AvgWithheldPerPeriod  float64
 }
 
 // EOYProjection holds the combined household EOY estimate.
@@ -95,23 +114,52 @@ func projectForPerson(name string, stubs []db.Paystub, refDate time.Time, taxYea
 	// Classify each paystub as regular or bonus.
 	regular, bonuses := classifyPaystubs(stubs, ep.PayFrequency)
 
-	// Sum withholding.
+	// Sum withholding from individual stubs.
+	var sumRegular, sumBonus float64
 	for _, s := range regular {
-		ep.RegularWithheldToDate += s.FederalTaxWithheld
+		sumRegular += s.FederalTaxWithheld
 	}
 	for _, s := range bonuses {
-		ep.BonusWithheldToDate += s.FederalTaxWithheld
+		sumBonus += s.FederalTaxWithheld
 	}
-	ep.TotalWithheldToDate = ep.RegularWithheldToDate + ep.BonusWithheldToDate
+	ep.RegularWithheldToDate = sumRegular
+	ep.BonusWithheldToDate = sumBonus
 	ep.BonusCount = len(bonuses)
 
-	// Project remaining withholding from the most recent regular paycheck.
+	// Use YTD federal tax withheld from the latest stub when available,
+	// since it accounts for all pay periods (including ones not uploaded).
+	latestStub := stubs[len(stubs)-1]
+	if latestStub.YTDFederalTaxWithheld != nil && *latestStub.YTDFederalTaxWithheld >= sumRegular+sumBonus {
+		ep.TotalWithheldToDate = *latestStub.YTDFederalTaxWithheld
+		// Attribute the difference to regular withholding (unuploaded stubs).
+		ep.RegularWithheldToDate = ep.TotalWithheldToDate - ep.BonusWithheldToDate
+	} else {
+		ep.TotalWithheldToDate = sumRegular + sumBonus
+	}
+
+	// Detect pay type from regular stubs.
+	ep.PayType = InferPayType(regular)
+
+	// Project remaining withholding based on pay type.
 	if len(regular) > 0 && ep.PayFrequency != FrequencyUnknown {
-		lastRegular := regular[len(regular)-1]
 		periodsPerYear := int(ep.PayFrequency)
 		remaining := remainingPayPeriods(refDate, taxYear, periodsPerYear, stubs)
 		ep.RemainingPayPeriods = remaining
-		ep.ProjectedRemaining = lastRegular.FederalTaxWithheld * float64(remaining)
+
+		// Compute average withholding across regular stubs (used for hourly projection).
+		var sumFedTax float64
+		for _, s := range regular {
+			sumFedTax += s.FederalTaxWithheld
+		}
+		ep.AvgWithheldPerPeriod = sumFedTax / float64(len(regular))
+
+		switch ep.PayType {
+		case PayTypeHourly:
+			ep.ProjectedRemaining = ep.AvgWithheldPerPeriod * float64(remaining)
+		default: // PayTypeSalaried
+			lastRegular := regular[len(regular)-1]
+			ep.ProjectedRemaining = lastRegular.FederalTaxWithheld * float64(remaining)
+		}
 	}
 
 	ep.ProjectedEOYTotal = ep.TotalWithheldToDate + ep.ProjectedRemaining
@@ -119,12 +167,26 @@ func projectForPerson(name string, stubs []db.Paystub, refDate time.Time, taxYea
 }
 
 // InferPayFrequency determines pay frequency from a sorted slice of paystubs.
+// It uses pay period length (end - start) as the primary signal to distinguish
+// weekly and monthly frequencies. For the ambiguous biweekly/semi-monthly range,
+// it uses gaps between consecutive stubs when available. This handles
+// non-consecutive uploads correctly (e.g., two biweekly stubs from different
+// months won't be misclassified as monthly).
 func InferPayFrequency(stubs []db.Paystub) PayFrequency {
-	if len(stubs) < 2 {
+	if len(stubs) < 1 {
 		return FrequencyBiweekly // default assumption
 	}
 
-	// Calculate gaps between consecutive pay period start dates.
+	// Compute pay period lengths (end - start) for each stub.
+	var periodLengths []int
+	for _, s := range stubs {
+		days := int(s.PayPeriodEnd.Sub(s.PayPeriodStart).Hours() / 24)
+		if days > 0 {
+			periodLengths = append(periodLengths, days)
+		}
+	}
+
+	// Compute gaps between consecutive pay period start dates.
 	var gaps []int
 	for i := 1; i < len(stubs); i++ {
 		days := int(stubs[i].PayPeriodStart.Sub(stubs[i-1].PayPeriodStart).Hours() / 24)
@@ -133,24 +195,111 @@ func InferPayFrequency(stubs []db.Paystub) PayFrequency {
 		}
 	}
 
+	// Use period length to identify clear weekly or monthly cases.
+	if len(periodLengths) > 0 {
+		sort.Ints(periodLengths)
+		medianLength := periodLengths[len(periodLengths)/2]
+
+		if medianLength <= 9 {
+			return FrequencyWeekly
+		}
+		if medianLength > 20 {
+			return FrequencyMonthly
+		}
+
+		// Period length is in the 10-20 day range (biweekly or semi-monthly).
+		// Use gaps between consecutive stubs to disambiguate if available.
+		if len(gaps) > 0 {
+			sort.Ints(gaps)
+			medianGap := gaps[len(gaps)/2]
+			if medianGap <= 14 {
+				return FrequencyBiweekly
+			}
+			if medianGap <= 20 {
+				return FrequencySemiMonthly
+			}
+			// Gaps > 20 means stubs are non-consecutive; fall through to
+			// period length heuristic below.
+		}
+
+		// No consecutive gaps available or gaps are too wide (non-consecutive uploads).
+		// Use period length: biweekly periods are typically 13-14 days,
+		// semi-monthly periods vary more (12-16 days with a median around 15).
+		if medianLength <= 14 {
+			return FrequencyBiweekly
+		}
+		return FrequencySemiMonthly
+	}
+
+	// No period length data; fall back to gaps only.
 	if len(gaps) == 0 {
 		return FrequencyBiweekly
 	}
 
-	// Use median gap to be robust to outliers (bonuses).
 	sort.Ints(gaps)
-	median := gaps[len(gaps)/2]
-
+	medianGap := gaps[len(gaps)/2]
 	switch {
-	case median <= 9:
+	case medianGap <= 9:
 		return FrequencyWeekly
-	case median <= 14:
+	case medianGap <= 14:
 		return FrequencyBiweekly
-	case median <= 20:
+	case medianGap <= 20:
 		return FrequencySemiMonthly
 	default:
 		return FrequencyMonthly
 	}
+}
+
+// InferPayType determines whether an earner is salaried or hourly based on
+// hours data and gross pay variance across regular paystubs.
+func InferPayType(stubs []db.Paystub) PayType {
+	if len(stubs) < 2 {
+		return PayTypeSalaried
+	}
+
+	// Check hours data: if ≥2 stubs have hours and all show consistent
+	// standard hours (40.0 weekly or 80.0 biweekly), treat as salaried.
+	var hoursValues []float64
+	for _, s := range stubs {
+		if s.Hours != nil && *s.Hours > 0 {
+			hoursValues = append(hoursValues, *s.Hours)
+		}
+	}
+	if len(hoursValues) >= 2 {
+		allStandard := true
+		for _, h := range hoursValues {
+			if h != 40.0 && h != 80.0 {
+				allStandard = false
+				break
+			}
+		}
+		if allStandard {
+			return PayTypeSalaried
+		}
+	}
+
+	// Compute coefficient of variation of gross pay.
+	var sum, sumSq float64
+	for _, s := range stubs {
+		sum += s.GrossPay
+		sumSq += s.GrossPay * s.GrossPay
+	}
+	n := float64(len(stubs))
+	mean := sum / n
+	if mean == 0 {
+		return PayTypeSalaried
+	}
+	variance := (sumSq / n) - (mean * mean)
+	if variance < 0 {
+		variance = 0
+	}
+	stddev := math.Sqrt(variance)
+	cv := stddev / mean
+
+	if cv < 0.02 {
+		return PayTypeSalaried
+	}
+	return PayTypeHourly
 }
 
 // classifyPaystubs separates regular paychecks from bonuses using multiple signals.
@@ -247,14 +396,21 @@ func classifyPaystubs(stubs []db.Paystub, freq PayFrequency) (regular, bonuses [
 	return regular, bonuses
 }
 
-// remainingPayPeriods calculates periods left in the year from the reference date.
+// remainingPayPeriods calculates periods left in the year using the latest
+// pay period end date rather than counting uploaded stubs, which would
+// undercount if uploads are missed.
 func remainingPayPeriods(refDate time.Time, taxYear int, periodsPerYear int, stubs []db.Paystub) int {
-	// Count distinct periods already received.
-	periodsElapsed := len(stubs)
-
-	remaining := periodsPerYear - periodsElapsed
-	if remaining < 0 {
-		remaining = 0
+	if len(stubs) == 0 {
+		return periodsRemainingFromDate(refDate, taxYear, periodsPerYear)
 	}
-	return remaining
+
+	// Find the latest PayPeriodEnd across all stubs.
+	latestEnd := stubs[0].PayPeriodEnd
+	for _, s := range stubs[1:] {
+		if s.PayPeriodEnd.After(latestEnd) {
+			latestEnd = s.PayPeriodEnd
+		}
+	}
+
+	return periodsRemainingFromDate(latestEnd, taxYear, periodsPerYear)
 }
