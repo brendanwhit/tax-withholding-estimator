@@ -27,6 +27,8 @@ type PaystubData struct {
 	PayPeriodEnd          time.Time
 	YTDGrossPay           float64
 	YTDFederalTaxWithheld float64
+	Hours                 float64
+	YTDHours              float64
 	Deductions            []Deduction
 }
 
@@ -151,6 +153,9 @@ var (
 	// Used to extract YTD gross from columnar paystubs where the earnings section
 	// has a total row with hours and dollar columns.
 	earningsTotalPattern = regexp.MustCompile(`(?i)total\s*:?\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)\s+\$?([0-9,]+\.\d+)`)
+
+	// Hours worked pattern: "Hours Worked: 80.00" or "Total Hours: 80.00".
+	hoursWorkedPattern = regexp.MustCompile(`(?i)(?:hours\s*worked|total\s*hours)[\s:]*([0-9,]+(?:\.\d+)?)`)
 
 	// Name pattern - handles various payroll provider labels.
 	// Order matters: "employee\s*name" must come before "employee" to avoid capturing "Name" as first name.
@@ -326,7 +331,23 @@ func extractYTDTotals(text string, data *PaystubData) {
 					if ytd, err := parseAmount(m[4]); err == nil {
 						data.YTDGrossPay = ytd
 					}
+					// Extract hours from the same match.
+					if hrs, err := parseAmount(m[1]); err == nil {
+						data.Hours = hrs
+					}
+					if ytdHrs, err := parseAmount(m[3]); err == nil {
+						data.YTDHours = ytdHrs
+					}
 				}
+			}
+		}
+	}
+
+	// Fallback hours extraction from "Hours Worked: X" labels.
+	if data.Hours == 0 {
+		if m := hoursWorkedPattern.FindStringSubmatch(text); len(m) > 1 {
+			if hrs, err := parseAmount(m[1]); err == nil {
+				data.Hours = hrs
 			}
 		}
 	}

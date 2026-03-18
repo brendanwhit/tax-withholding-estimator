@@ -19,6 +19,14 @@ type EarnerSummary struct {
 	LatestPayPeriodEnd    time.Time
 }
 
+// EarnerWithholdingOption shows how much additional withholding each earner
+// would need per paycheck to cover the remaining tax gap.
+type EarnerWithholdingOption struct {
+	Name                  string
+	RemainingPayPeriods   int
+	AdditionalPerPaycheck float64
+}
+
 // WithholdingResult holds the full recommendation.
 type WithholdingResult struct {
 	TaxYear               int
@@ -34,6 +42,7 @@ type WithholdingResult struct {
 	Earners               []EarnerSummary
 	SupplementalIncome    float64
 	PreTaxDeductions      float64
+	PerEarnerOptions      []EarnerWithholdingOption
 }
 
 // WithholdingInput holds all inputs for the withholding calculation.
@@ -47,6 +56,9 @@ type WithholdingInput struct {
 	// ProjectedRemainingWithholding, if > 0, overrides the internal average-based
 	// estimate with the EOY projection's number for consistency.
 	ProjectedRemainingWithholding float64
+	// PerEarnerRemainingPeriods provides each earner's remaining pay periods
+	// (from EOY projection) for per-earner withholding options.
+	PerEarnerRemainingPeriods map[string]int
 }
 
 // CalculateWithholding computes the withholding recommendation.
@@ -112,15 +124,34 @@ func CalculateWithholding(in WithholdingInput) *WithholdingResult {
 	)
 
 	// Additional withholding per paycheck for the higher earner.
+	var gap float64
 	if result.RemainingPayPeriods > 0 && result.RemainingTaxOwed > 0 {
 		// Use EOY projection if provided, otherwise fall back to average-based estimate.
 		normalWithholdingRemaining := in.ProjectedRemainingWithholding
 		if normalWithholdingRemaining == 0 {
 			normalWithholdingRemaining = estimateNormalWithholdingRemaining(earners, result.RemainingPayPeriods, totalPayPeriodsPerYear)
 		}
-		gap := result.TotalTaxLiability - result.TotalWithheldToDate - normalWithholdingRemaining
+		gap = result.TotalTaxLiability - result.TotalWithheldToDate - normalWithholdingRemaining
 		if gap > 0 {
 			result.AdditionalPerPaycheck = gap / float64(result.RemainingPayPeriods)
+		}
+	}
+
+	// Build per-earner withholding options.
+	if gap > 0 && len(in.PerEarnerRemainingPeriods) > 0 {
+		for _, e := range earners {
+			remaining, ok := in.PerEarnerRemainingPeriods[e.Name]
+			if !ok {
+				continue
+			}
+			opt := EarnerWithholdingOption{
+				Name:                e.Name,
+				RemainingPayPeriods: remaining,
+			}
+			if remaining > 0 {
+				opt.AdditionalPerPaycheck = gap / float64(remaining)
+			}
+			result.PerEarnerOptions = append(result.PerEarnerOptions, opt)
 		}
 	}
 

@@ -34,10 +34,28 @@ func (f PayFrequency) String() string {
 	}
 }
 
+// PayType indicates whether an earner is salaried or hourly.
+type PayType int
+
+const (
+	PayTypeSalaried PayType = iota
+	PayTypeHourly
+)
+
+func (p PayType) String() string {
+	switch p {
+	case PayTypeHourly:
+		return "Hourly"
+	default:
+		return "Salaried"
+	}
+}
+
 // EarnerProjection holds the EOY projection for a single person.
 type EarnerProjection struct {
 	Name                  string
 	PayFrequency          PayFrequency
+	PayType               PayType
 	RegularWithheldToDate float64
 	BonusWithheldToDate   float64
 	TotalWithheldToDate   float64
@@ -45,6 +63,7 @@ type EarnerProjection struct {
 	ProjectedEOYTotal     float64
 	BonusCount            int
 	RemainingPayPeriods   int
+	AvgWithheldPerPeriod  float64
 }
 
 // EOYProjection holds the combined household EOY estimate.
@@ -118,13 +137,29 @@ func projectForPerson(name string, stubs []db.Paystub, refDate time.Time, taxYea
 		ep.TotalWithheldToDate = sumRegular + sumBonus
 	}
 
-	// Project remaining withholding from the most recent regular paycheck.
+	// Detect pay type from regular stubs.
+	ep.PayType = InferPayType(regular)
+
+	// Project remaining withholding based on pay type.
 	if len(regular) > 0 && ep.PayFrequency != FrequencyUnknown {
-		lastRegular := regular[len(regular)-1]
 		periodsPerYear := int(ep.PayFrequency)
 		remaining := remainingPayPeriods(refDate, taxYear, periodsPerYear, stubs)
 		ep.RemainingPayPeriods = remaining
-		ep.ProjectedRemaining = lastRegular.FederalTaxWithheld * float64(remaining)
+
+		// Compute average withholding across regular stubs (used for hourly projection).
+		var sumFedTax float64
+		for _, s := range regular {
+			sumFedTax += s.FederalTaxWithheld
+		}
+		ep.AvgWithheldPerPeriod = sumFedTax / float64(len(regular))
+
+		switch ep.PayType {
+		case PayTypeHourly:
+			ep.ProjectedRemaining = ep.AvgWithheldPerPeriod * float64(remaining)
+		default: // PayTypeSalaried
+			lastRegular := regular[len(regular)-1]
+			ep.ProjectedRemaining = lastRegular.FederalTaxWithheld * float64(remaining)
+		}
 	}
 
 	ep.ProjectedEOYTotal = ep.TotalWithheldToDate + ep.ProjectedRemaining
@@ -213,6 +248,58 @@ func InferPayFrequency(stubs []db.Paystub) PayFrequency {
 	default:
 		return FrequencyMonthly
 	}
+}
+
+// InferPayType determines whether an earner is salaried or hourly based on
+// hours data and gross pay variance across regular paystubs.
+func InferPayType(stubs []db.Paystub) PayType {
+	if len(stubs) < 2 {
+		return PayTypeSalaried
+	}
+
+	// Check hours data: if ≥2 stubs have hours and all show consistent
+	// standard hours (40.0 weekly or 80.0 biweekly), treat as salaried.
+	var hoursValues []float64
+	for _, s := range stubs {
+		if s.Hours != nil && *s.Hours > 0 {
+			hoursValues = append(hoursValues, *s.Hours)
+		}
+	}
+	if len(hoursValues) >= 2 {
+		allStandard := true
+		for _, h := range hoursValues {
+			if h != 40.0 && h != 80.0 {
+				allStandard = false
+				break
+			}
+		}
+		if allStandard {
+			return PayTypeSalaried
+		}
+	}
+
+	// Compute coefficient of variation of gross pay.
+	var sum, sumSq float64
+	for _, s := range stubs {
+		sum += s.GrossPay
+		sumSq += s.GrossPay * s.GrossPay
+	}
+	n := float64(len(stubs))
+	mean := sum / n
+	if mean == 0 {
+		return PayTypeSalaried
+	}
+	variance := (sumSq / n) - (mean * mean)
+	if variance < 0 {
+		variance = 0
+	}
+	stddev := math.Sqrt(variance)
+	cv := stddev / mean
+
+	if cv < 0.02 {
+		return PayTypeSalaried
+	}
+	return PayTypeHourly
 }
 
 // classifyPaystubs separates regular paychecks from bonuses using multiple signals.

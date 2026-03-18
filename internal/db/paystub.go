@@ -17,6 +17,8 @@ type Paystub struct {
 	FederalTaxWithheld    float64
 	YTDGrossPay           *float64
 	YTDFederalTaxWithheld *float64
+	Hours                 *float64
+	YTDHours              *float64
 	CreatedAt             time.Time
 }
 
@@ -26,16 +28,19 @@ type Paystub struct {
 func (s *Store) SavePaystub(p *Paystub) (int64, error) {
 	result, err := s.DB.Exec(`INSERT INTO paystubs
 		(person_name, tax_year, pay_period_start, pay_period_end, gross_pay,
-		 federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld, hours, ytd_hours)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(person_name, pay_period_start, pay_period_end) DO UPDATE SET
 			gross_pay = excluded.gross_pay,
 			federal_tax_withheld = excluded.federal_tax_withheld,
 			ytd_gross_pay = excluded.ytd_gross_pay,
-			ytd_federal_tax_withheld = excluded.ytd_federal_tax_withheld`,
+			ytd_federal_tax_withheld = excluded.ytd_federal_tax_withheld,
+			hours = excluded.hours,
+			ytd_hours = excluded.ytd_hours`,
 		p.PersonName, p.TaxYear,
 		p.PayPeriodStart.Format("2006-01-02"), p.PayPeriodEnd.Format("2006-01-02"),
-		p.GrossPay, p.FederalTaxWithheld, p.YTDGrossPay, p.YTDFederalTaxWithheld)
+		p.GrossPay, p.FederalTaxWithheld, p.YTDGrossPay, p.YTDFederalTaxWithheld,
+		p.Hours, p.YTDHours)
 	if err != nil {
 		return 0, fmt.Errorf("save paystub: %w", err)
 	}
@@ -46,7 +51,7 @@ func (s *Store) SavePaystub(p *Paystub) (int64, error) {
 // ordered by pay period start date.
 func (s *Store) GetPaystubsByPersonAndYear(name string, year int) ([]Paystub, error) {
 	rows, err := s.DB.Query(`SELECT id, person_name, tax_year, pay_period_start, pay_period_end,
-		gross_pay, federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld, created_at
+		gross_pay, federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld, hours, ytd_hours, created_at
 		FROM paystubs WHERE person_name = ? AND tax_year = ?
 		ORDER BY pay_period_start ASC`, name, year)
 	if err != nil {
@@ -60,7 +65,7 @@ func (s *Store) GetPaystubsByPersonAndYear(name string, year int) ([]Paystub, er
 // GetAllPaystubsByYear returns all paystubs for a given tax year.
 func (s *Store) GetAllPaystubsByYear(year int) ([]Paystub, error) {
 	rows, err := s.DB.Query(`SELECT id, person_name, tax_year, pay_period_start, pay_period_end,
-		gross_pay, federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld, created_at
+		gross_pay, federal_tax_withheld, ytd_gross_pay, ytd_federal_tax_withheld, hours, ytd_hours, created_at
 		FROM paystubs WHERE tax_year = ?
 		ORDER BY person_name ASC, pay_period_start ASC`, year)
 	if err != nil {
@@ -77,7 +82,8 @@ func scanPaystubs(rows *sql.Rows) ([]Paystub, error) {
 		var p Paystub
 		var start, end, created string
 		if err := rows.Scan(&p.ID, &p.PersonName, &p.TaxYear, &start, &end,
-			&p.GrossPay, &p.FederalTaxWithheld, &p.YTDGrossPay, &p.YTDFederalTaxWithheld, &created); err != nil {
+			&p.GrossPay, &p.FederalTaxWithheld, &p.YTDGrossPay, &p.YTDFederalTaxWithheld,
+			&p.Hours, &p.YTDHours, &created); err != nil {
 			return nil, fmt.Errorf("scan paystub: %w", err)
 		}
 		var err error

@@ -19,6 +19,14 @@ func makeStubDates(person string, year int, startMonth, startDay, endMonth, endD
 	}
 }
 
+func makeStubWithHours(person string, year int, startMonth, startDay, endMonth, endDay int, gross, fedTax, hours float64) db.Paystub {
+	s := makeStubDates(person, year, startMonth, startDay, endMonth, endDay, gross, fedTax)
+	s.Hours = &hours
+	return s
+}
+
+func float64Ptr(v float64) *float64 { return &v }
+
 func TestInferPayFrequencyBiweekly(t *testing.T) {
 	stubs := []db.Paystub{
 		makeStubDates("A", 2025, 1, 1, 1, 14, 5000, 800),
@@ -274,5 +282,111 @@ func TestProjectionFallsBackToSumWhenNoYTD(t *testing.T) {
 	alice := proj.Earners[0]
 	if alice.TotalWithheldToDate != 2400 {
 		t.Errorf("TotalWithheldToDate = %v, want 2400 (sum of stubs)", alice.TotalWithheldToDate)
+	}
+}
+
+func TestInferPayTypeSalaried(t *testing.T) {
+	// Identical gross pay → salaried.
+	stubs := []db.Paystub{
+		makeStubDates("A", 2025, 1, 1, 1, 14, 5000, 800),
+		makeStubDates("A", 2025, 1, 15, 1, 28, 5000, 800),
+		makeStubDates("A", 2025, 1, 29, 2, 11, 5000, 800),
+	}
+	pt := calc.InferPayType(stubs)
+	if pt != calc.PayTypeSalaried {
+		t.Errorf("expected Salaried, got %s", pt)
+	}
+}
+
+func TestInferPayTypeHourly(t *testing.T) {
+	// Varying gross pay → hourly.
+	stubs := []db.Paystub{
+		makeStubDates("A", 2025, 1, 1, 1, 14, 2400, 300),
+		makeStubDates("A", 2025, 1, 15, 1, 28, 3200, 420),
+		makeStubDates("A", 2025, 1, 29, 2, 11, 2800, 360),
+		makeStubDates("A", 2025, 2, 12, 2, 25, 3600, 480),
+	}
+	pt := calc.InferPayType(stubs)
+	if pt != calc.PayTypeHourly {
+		t.Errorf("expected Hourly, got %s", pt)
+	}
+}
+
+func TestInferPayTypeSalariedWithFortyHours(t *testing.T) {
+	// Varying gross but all 80.0 hours (biweekly 40h/wk) → salaried.
+	stubs := []db.Paystub{
+		makeStubWithHours("A", 2025, 1, 1, 1, 14, 5000, 800, 80),
+		makeStubWithHours("A", 2025, 1, 15, 1, 28, 5100, 810, 80),
+		makeStubWithHours("A", 2025, 1, 29, 2, 11, 4900, 790, 80),
+	}
+	pt := calc.InferPayType(stubs)
+	if pt != calc.PayTypeSalaried {
+		t.Errorf("expected Salaried (consistent hours), got %s", pt)
+	}
+}
+
+func TestInferPayTypeDefaultWithFewStubs(t *testing.T) {
+	stubs := []db.Paystub{
+		makeStubDates("A", 2025, 1, 1, 1, 14, 5000, 800),
+	}
+	pt := calc.InferPayType(stubs)
+	if pt != calc.PayTypeSalaried {
+		t.Errorf("expected Salaried default with <2 stubs, got %s", pt)
+	}
+}
+
+func TestProjectionHourlyUsesAverage(t *testing.T) {
+	// Varying gross pay → hourly → projection uses average withholding.
+	stubs := map[string][]db.Paystub{
+		"Charlie": {
+			makeStubDates("Charlie", 2025, 1, 1, 1, 14, 2400, 300),
+			makeStubDates("Charlie", 2025, 1, 15, 1, 28, 3200, 420),
+			makeStubDates("Charlie", 2025, 1, 29, 2, 11, 2800, 360),
+		},
+	}
+
+	refDate := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	proj := calc.ProjectEOYWithholding(stubs, refDate, 2025)
+
+	charlie := proj.Earners[0]
+	if charlie.PayType != calc.PayTypeHourly {
+		t.Errorf("expected Hourly pay type, got %s", charlie.PayType)
+	}
+
+	// Average withholding across 3 regular stubs: (300+420+360)/3 = 360.
+	expectedAvg := 360.0
+	if charlie.AvgWithheldPerPeriod != expectedAvg {
+		t.Errorf("AvgWithheldPerPeriod = %v, want %v", charlie.AvgWithheldPerPeriod, expectedAvg)
+	}
+
+	// Projected remaining = avg * remaining periods.
+	expected := expectedAvg * float64(charlie.RemainingPayPeriods)
+	if charlie.ProjectedRemaining != expected {
+		t.Errorf("ProjectedRemaining = %v, want %v (avg*remaining)", charlie.ProjectedRemaining, expected)
+	}
+}
+
+func TestProjectionSalariedUsesLastPaycheck(t *testing.T) {
+	// Consistent gross → salaried → uses last paycheck withholding.
+	stubs := map[string][]db.Paystub{
+		"Diana": {
+			makeStubDates("Diana", 2025, 1, 1, 1, 14, 5000, 800),
+			makeStubDates("Diana", 2025, 1, 15, 1, 28, 5000, 800),
+			makeStubDates("Diana", 2025, 1, 29, 2, 11, 5000, 850),
+		},
+	}
+
+	refDate := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	proj := calc.ProjectEOYWithholding(stubs, refDate, 2025)
+
+	diana := proj.Earners[0]
+	if diana.PayType != calc.PayTypeSalaried {
+		t.Errorf("expected Salaried pay type, got %s", diana.PayType)
+	}
+
+	// Salaried should use last regular paycheck ($850), not average.
+	expected := 850.0 * float64(diana.RemainingPayPeriods)
+	if diana.ProjectedRemaining != expected {
+		t.Errorf("ProjectedRemaining = %v, want %v (lastRegular*remaining)", diana.ProjectedRemaining, expected)
 	}
 }

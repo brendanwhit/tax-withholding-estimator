@@ -334,6 +334,142 @@ func TestPreTaxDeductionsReduceTaxLiability(t *testing.T) {
 	}
 }
 
+func TestPerEarnerWithholdingOptions(t *testing.T) {
+	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
+	if schedule == nil {
+		t.Fatal("expected brackets")
+	}
+
+	earners := []calc.EarnerSummary{
+		{
+			Name:                 "Eve",
+			TotalGrossPay:        80000,
+			TotalFederalWithheld: 8000,
+			PayPeriodsUploaded:   13,
+			LatestYTDGross:       80000,
+			LatestYTDFedWithheld: 8000,
+			AvgGrossPerPeriod:    80000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			Name:                 "Frank",
+			TotalGrossPay:        30000,
+			TotalFederalWithheld: 2000,
+			PayPeriodsUploaded:   13,
+			LatestYTDGross:       30000,
+			LatestYTDFedWithheld: 2000,
+			AvgGrossPerPeriod:    30000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
+		PerEarnerRemainingPeriods: map[string]int{
+			"Eve":   13,
+			"Frank": 13,
+		},
+	})
+
+	if len(result.PerEarnerOptions) != 2 {
+		t.Fatalf("expected 2 per-earner options, got %d", len(result.PerEarnerOptions))
+	}
+
+	// Both should have the same remaining periods (13).
+	for _, opt := range result.PerEarnerOptions {
+		if opt.RemainingPayPeriods != 13 {
+			t.Errorf("%s: RemainingPayPeriods = %d, want 13", opt.Name, opt.RemainingPayPeriods)
+		}
+		// When there's a gap, both should have positive additional per paycheck.
+		if result.RemainingTaxOwed > 0 && opt.AdditionalPerPaycheck <= 0 {
+			t.Errorf("%s: expected positive AdditionalPerPaycheck when tax is owed", opt.Name)
+		}
+	}
+}
+
+func TestPerEarnerOptionsOverwithheld(t *testing.T) {
+	schedule := tax.HardcodedBrackets(2025, tax.Single)
+	if schedule == nil {
+		t.Fatal("expected brackets")
+	}
+
+	earners := []calc.EarnerSummary{
+		{
+			Name:                 "Jack",
+			TotalGrossPay:        50000,
+			TotalFederalWithheld: 20000, // way over-withheld
+			PayPeriodsUploaded:   26,
+			LatestYTDGross:       50000,
+			LatestYTDFedWithheld: 20000,
+			AvgGrossPerPeriod:    50000.0 / 26.0,
+			LatestPayPeriodEnd:   time.Date(2025, 12, 26, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC),
+		PerEarnerRemainingPeriods: map[string]int{
+			"Jack": 0,
+		},
+	})
+
+	// Should have no options (or zero additional) when over-withheld.
+	for _, opt := range result.PerEarnerOptions {
+		if opt.AdditionalPerPaycheck > 0 {
+			t.Errorf("%s: should not recommend additional when over-withheld", opt.Name)
+		}
+	}
+}
+
+func TestPerEarnerOptionsSingleEarner(t *testing.T) {
+	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
+	if schedule == nil {
+		t.Fatal("expected brackets")
+	}
+
+	earners := []calc.EarnerSummary{
+		{
+			Name:                 "Mia",
+			TotalGrossPay:        80000,
+			TotalFederalWithheld: 6000,
+			PayPeriodsUploaded:   13,
+			LatestYTDGross:       80000,
+			LatestYTDFedWithheld: 6000,
+			AvgGrossPerPeriod:    80000.0 / 13.0,
+			LatestPayPeriodEnd:   time.Date(2025, 6, 27, 0, 0, 0, 0, time.UTC),
+		},
+	}
+
+	result := calc.CalculateWithholding(calc.WithholdingInput{
+		Schedule:               schedule,
+		Earners:                earners,
+		TotalPayPeriodsPerYear: 26,
+		ReferenceDate:          time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC),
+		PerEarnerRemainingPeriods: map[string]int{
+			"Mia": 13,
+		},
+	})
+
+	if len(result.PerEarnerOptions) != 1 {
+		t.Fatalf("expected 1 per-earner option, got %d", len(result.PerEarnerOptions))
+	}
+
+	// Single earner's per-paycheck should match the overall recommendation.
+	if result.AdditionalPerPaycheck > 0 {
+		opt := result.PerEarnerOptions[0]
+		if opt.AdditionalPerPaycheck != result.AdditionalPerPaycheck {
+			t.Errorf("single earner option (%v) should match overall recommendation (%v)",
+				opt.AdditionalPerPaycheck, result.AdditionalPerPaycheck)
+		}
+	}
+}
+
 func TestProjectedRemainingOverridesAverageEstimate(t *testing.T) {
 	schedule := tax.HardcodedBrackets(2025, tax.MarriedFilingJointly)
 	if schedule == nil {

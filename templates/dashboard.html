@@ -48,6 +48,30 @@
     </div>
 
     {{if gt .Result.AdditionalPerPaycheck 0.0}}
+    {{if .Result.PerEarnerOptions}}
+    <h3 style="margin-top:20px;">Per-Earner Withholding Options</h3>
+    <p style="color:var(--text-muted); font-size:0.9em; margin-bottom:12px;">
+        Choose one earner to apply the additional withholding to, or split between both.
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>Earner</th>
+                <th>Remaining Periods</th>
+                <th>Additional per Paycheck</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Result.PerEarnerOptions}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.RemainingPayPeriods}}</td>
+                <td>{{if gt .AdditionalPerPaycheck 0.0}}{{formatMoney .AdditionalPerPaycheck}}{{else}}&mdash;{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
     <div class="stat-grid">
         <div class="stat highlight">
             <div class="label">Recommended Additional per Paycheck</div>
@@ -62,6 +86,7 @@
             <div class="value">{{.Result.RemainingPayPeriods}}</div>
         </div>
     </div>
+    {{end}}
     {{end}}
 </div>
 
@@ -89,6 +114,7 @@
             <tr>
                 <th>Person</th>
                 <th>Pay Freq</th>
+                <th>Pay Type</th>
                 <th>Withheld</th>
                 <th>Projected</th>
                 <th>EOY Total</th>
@@ -100,8 +126,9 @@
             <tr>
                 <td>{{.Name}}</td>
                 <td>{{.PayFrequency}}</td>
+                <td>{{.PayType}}</td>
                 <td>{{formatMoney .TotalWithheldToDate}}</td>
-                <td>{{formatMoney .ProjectedRemaining}} ({{.RemainingPayPeriods}} periods)</td>
+                <td>{{formatMoney .ProjectedRemaining}} ({{.RemainingPayPeriods}} periods{{if eq (.PayType.String) "Hourly"}}, avg{{end}})</td>
                 <td>{{formatMoney .ProjectedEOYTotal}}</td>
                 <td>{{if gt .BonusCount 0}}{{.BonusCount}} detected ({{formatMoney .BonusWithheldToDate}}){{else}}&mdash;{{end}}</td>
             </tr>
